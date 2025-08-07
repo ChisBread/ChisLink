@@ -105,6 +105,11 @@ For compatibility issues, please provide:
 - Cartridge model and PCB photo
 - Specific error symptoms
 
+## Roadmap
+
+- 🔮 **Self-hosted Cloud Save** - Support for self-deployed cloud save functionality
+- 🌐 **ChisLink Internet Multiplayer Protocol** - Implementation of internet-based multiplayer protocol for ChisLink devices
+
 ## Credits
 
 - [Butano](https://github.com/GValiente/butano) - GBA development framework
