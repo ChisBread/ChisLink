@@ -11,6 +11,9 @@ A full-function portable cartridge programmer designed for GBA
 
 - [ChisLink中文说明](./docs/manual-zh.md) | [ChisLink English Manual](./docs/manual-en.md)
 
+### Agents
+- [EPICJOY Official Store](https://www.aliexpress.us/item/3256809487843308.html)
+
 ## Overview
 
 ChisLink is a powerful GBA (Game Boy Advance) portable cartridge programmer that supports reading/writing various cartridge types, save management, ROM backup, and more. The device is compact and portable, featuring WiFi connectivity.
@@ -119,7 +122,4 @@ For compatibility issues, please provide:
 ---
 
 📖 **Detailed Manuals**: [中文版](./docs/manual-zh.md) | [English](./docs/manual-en.md)
-
-### Agents
-- [EPICJOY Official Store](https://www.aliexpress.us/item/3256809487843308.html)
 
