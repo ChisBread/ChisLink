@@ -2,7 +2,7 @@
 
 A full-function portable cartridge programmer designed for GBA
 
-- [Discord(Preparing)](https://discord.com/channels/1400338637580795904/1400338638025527339)
+- [Discord(Preparing)](https://discord.gg/7tETfmQa)
 
 - Open Source Flashcarts
     - [ChisFlash 0.1(SRAM1M), 1.0(FRAM1M), 1.1(Flash1M)](https://github.com/ChisBread/ChisFlash)
