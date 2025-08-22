@@ -39,7 +39,7 @@ ChisLink is a powerful GBA (Game Boy Advance) portable cartridge programmer that
 
 ### Preparation
 
-1. Prepare a TF card (MBR partition table, single partition format)
+1. Prepare a TF card (MBR partition table, single FAT32 partition format)
 2. Ensure `signature.bin` file exists in `/config` directory
 3. **Important**: Backup `signature.bin` file to a secure location
 
