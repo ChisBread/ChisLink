@@ -48,12 +48,13 @@
 ## IV. Filesystem
 ### Directory Structure
 
+```
 Root/
 ├── saves/        # Save files
 ├── favorites/    # Favorites
 └── config/       # System config
 └── dumps/        # ROM dumps
-
+```
 
 ### File Operations
 | Operation | Constraints |
