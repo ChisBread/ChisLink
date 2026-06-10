@@ -12,7 +12,7 @@ A full-function portable cartridge programmer designed for GBA
 - [ChisLink中文说明](./docs/manual-zh.md) | [ChisLink English Manual](./docs/manual-en.md)
 
 ### Agents
-- [EPICJOY Official Store](https://www.aliexpress.us/item/3256809487843308.html)
+- [ChisFamily Official Store](https://www.aliexpress.com/item/1005011958199331.html)
 
 ## Overview
 
