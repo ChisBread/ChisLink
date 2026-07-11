@@ -1,125 +1,95 @@
 # ChisLink
 
-A full-function portable cartridge programmer designed for GBA
+ChisLink is a portable GBA cartridge manager and MCU service platform. It can
+start a GBA multiboot manager, manage GBA cartridges, browse SD files, provide
+WiFi/BLE services to GBA software, and expose a C SDK for third-party programs.
 
-- [Discord(Preparing)](https://discord.gg/Hq8PSSpnEM)
+- User manuals: [English](./docs/manual-en.md) | [中文](./docs/manual-zh.md)
+- ChisFlash cartridges: [ChisFlash](https://github.com/ChisBread/ChisFlash)
+- Store: [ChisFamily Official Store](https://www.aliexpress.com/item/1005011958199331.html)
 
-- Open Source Flashcarts
-    - [ChisFlash 0.1(SRAM1M), 1.0(FRAM1M), 1.1(Flash1M)](https://github.com/ChisBread/ChisFlash)
-    - [ChisFlash MBC5 Max (16in1)](https://oshwhub.com/morinaka/chisflash-mbc5-max-32m-gbc-shao-lu-ka)
-    - [ChisFlash MBC5 Plus (4in1)](https://oshwhub.com/morinaka/chisflash-mbc5-gbc-shao-lu-ka)
+## What Is Included
 
-- [ChisLink中文说明](./docs/manual-zh.md) | [ChisLink English Manual](./docs/manual-en.md)
+- GBA multiboot manager for cartridge management.
+- ESP32-C3 MCU firmware with SD, WiFi, BLE, web file manager, and signing support.
+- Public GBA SDK for file, stream, socket, BLE, cart, and runtime services.
+- SDK examples, including storage, streams, sockets, BLE scan, Bomberman link,
+  and a BLE HID gamepad sample.
 
-### Agents
-- [ChisFamily Official Store](https://www.aliexpress.com/item/1005011958199331.html)
+## Manager Features
 
-## Overview
-
-ChisLink is a powerful GBA (Game Boy Advance) portable cartridge programmer that supports reading/writing various cartridge types, save management, ROM backup, and more. The device is compact and portable, featuring WiFi connectivity.
-
-## Key Features
-
-- 🎮 **Multi-cartridge Support** - Compatible with ChisFlash, ChisMBC5(adapter required), genuine cartridges, and some bootleg cartridges
-- 💾 **Smart Save Management** - Auto-detect save types with backup and restore functionality
-- ⚡ **Flashcart Programming** - Change the game on the flashcart anytime, anywhere!
-- 🗂️ **File System** - File management capabilities.
-- 📡 **WiFi Connectivity** - Wireless file transfer and remote management.
-
-## Supported Cartridge Types
-
-| Type | Description | Save Support | Programming |
-|------|-------------|--------------|-------------|
-| ChisFlash | Compatible cartridges | SRAM/Flash/EEPROM | ✅ |
-| ChisMBC5 | MBC5 cartridges (adapter required) | SRAM/Flash/EEPROM | ✅ |
-| Cartridge | Genuine cartridges | Database-based identification | ❌ |
-| Bootleg | Bootleg cartridges | Bootleg's Batteryless-SRAM is not fully supported, and it requires constant power restart (insert ChisLink in the game) | ⚠️ |
+- Cartridge page:
+  - GBA-side cartridge probing.
+  - Game database save detection and hardware save detection.
+  - Backup/restore by DB result or by hardware result.
+  - ROM dump and GBA NOR flash programming with progress, speed, and ETA.
+- File page:
+  - UTF-8 SD browser with multilingual font support.
+  - Run `.mb.gba` multiboot apps through the chainloader.
+  - Set a custom boot multiboot app.
+  - Flash ROMs, restore saves, favorite, rename, move, and delete files.
+- Wireless page:
+  - WiFi radio, lazy connect, power save, and TX power trim.
+  - AP scan, SSID/password input, and Join WiFi.
+  - Explicit Web Server startup on port 80.
+  - BLE scan/test entry.
+- About page:
+  - Language selection.
+  - Default/custom boot firmware selection.
+  - Build version and commit label.
 
 ## Quick Start
 
-### Preparation
+1. Prepare a microSD card with an MBR partition table and a FAT32 partition.
+2. Put your device signature at `/sd/.chislink/signature.bin`.
+   Legacy `/sd/config/signature.bin` is still accepted and migrated.
+3. Copy ROMs, saves, and `.mb.gba` examples anywhere on the SD card.
+4. Flash the firmware package from the latest GitHub release.
+5. Start the GBA in multiboot mode to enter the manager.
 
-1. Prepare a TF card (MBR partition table, single FAT32 partition format)
-2. Ensure `signature.bin` file exists in `/config` directory
-3. **Important**: Backup `signature.bin` file to a secure location
+The firmware creates this application directory automatically:
 
-### Device Startup
-
-- **No cartridge**: Auto-launch Link or custom App
-- **With cartridge**: Hold `START+SELECT` combo to boot
-
-### Basic Operations
-
-- `SELECT` - Switch menu view (multi-cart mode)
-- `A` - Select game for operations
-- `START` - Toggle file extension display / Enable overclock
-- `L+R` - View hardware details
-- D-pad - Navigate pages
-
-## File System Structure
-
-```
-Root/
-├── saves/        # Save files directory
-├── favorites/    # Favorites folder
-├── config/       # System configuration
-│   ├── signature.bin  # License file (required)
-│   └── web.conf      # WiFi configuration
-└── dumps/        # ROM dump directory
+```text
+/sd/.chislink/
+├── chislink.conf      # MCU config: WiFi, web, signing server
+├── manager.conf       # GBA manager config: language, custom boot
+├── signature.bin      # Device signature backup
+├── saves/             # Save backups
+├── dumps/             # ROM dumps
+├── favorites/         # Favorite files
+└── examples/          # Sample files for SDK examples
 ```
 
-## WiFi Configuration
+## Firmware Package
 
-### Default Settings
-- SSID: `Bach`
-- Password: `chisbread`
+Release assets contain `chislink-fw.zip` with:
 
-### Advanced Configuration (`/config/web.conf`)
-```ini
-wifi_disable=0          # Disable WiFi
-wifi_lazy_connect=1     # Recommended (reduces power consumption)
-wifi_max_power_adjust=0 # Power adjustment range (-16~16)
+```text
+flasher_args.json
+bootloader/bootloader.bin
+chislink-mcu.bin
+partition_table/partition-table.bin
+storage.bin
+identify.bin
 ```
 
-## Firmware Updates
+You can flash with [esptool-js](https://chisbread.github.io/esptool-js/) or a
+compatible ESP flashing tool using `flasher_args.json`.
 
-1. Connect to computer via USB
-2. Visit [esptool-js page](https://chisbread.github.io/esptool-js/)
-3. Select `USB JTAG/serial` to complete flashing
+## SDK
 
-## Safety Precautions
+The SDK is plain C and does not allocate hidden global workspaces. Applications
+provide the memory used by socket, BLE, stream, and protocol layers.
 
-⚠️ **Important Reminders**:
-- Verify TF card contains correct `signature.bin` before firmware flashing
-- Missing this file will brick the device
-- Regularly backup configuration files
+Build all examples:
 
-## Compatibility
+```sh
+make -C examples
+```
 
-- ✅ Supports all GBA console models
-- ✅ Compatible with ChisFlash MBC5 cartridges
-- ❌ GB Micro does not support overclocking
-- ⚠️ ChisMBC5 requires adapter
+Each example emits a `.mb.gba` multiboot image. Copy it to the SD card and run
+it from the manager file browser.
 
-## Technical Support
+## License
 
-For compatibility issues, please provide:
-- Hardware details (press `L+R` to view)
-- Cartridge model and PCB photo
-- Specific error symptoms
-
-## Roadmap
-
-- 🔮 **Self-hosted Cloud Save** - Support for self-deployed cloud save functionality
-- 🌐 **ChisLink Internet Multiplayer Protocol** - Implementation of internet-based multiplayer protocol for ChisLink devices
-
-## Credits
-
-- [Butano](https://github.com/GValiente/butano) - GBA development framework
-- [devkitPro](https://devkitpro.org/) - Development toolchain
-- [gba-link-connection](https://github.com/afska/gba-link-connection) - Connection library
-
----
-
-📖 **Detailed Manuals**: [中文版](./docs/manual-zh.md) | [English](./docs/manual-en.md)
-
+MIT. See [LICENSE](./LICENSE).
