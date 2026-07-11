@@ -1,0 +1,582 @@
+#ifndef CHISLINK_PROTO_H
+#define CHISLINK_PROTO_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define CLP_VERSION 2u
+
+#define CLP_WORD_VERSION_SHIFT 28u
+#define CLP_WORD_TYPE_SHIFT    24u
+#define CLP_WORD_CHANNEL_SHIFT 16u
+#define CLP_WORD_OPCODE_SHIFT  8u
+
+#define CLP_WORD_VERSION_MASK  0xf0000000u
+#define CLP_WORD_TYPE_MASK     0x0f000000u
+#define CLP_WORD_CHANNEL_MASK  0x00ff0000u
+#define CLP_WORD_OPCODE_MASK   0x0000ff00u
+#define CLP_WORD_IMM_MASK      0x000000ffu
+
+#define CLP_FLAG_CRC32         0x0001u
+#define CLP_FLAG_MORE          0x0002u
+#define CLP_FLAG_ERROR         0x0004u
+#define CLP_FLAG_EVENT         0x0008u
+#define CLP_FLAG_NEEDS_ACK     0x0010u
+#define CLP_FLAG_STREAM        0x0020u
+#define CLP_FLAG_COMMIT        0x0040u
+
+#define CLP_CAP_CRC32          0x00000001u
+#define CLP_CAP_STREAM_COPY    0x00000002u
+#define CLP_CAP_WINDOWED_ACK   0x00000004u
+#define CLP_CAP_NET            0x00000008u
+#define CLP_CAP_BLE            0x00000010u
+#define CLP_CAP_MANAGER_FONT   0x00000020u
+#define CLP_CAP_DIR_LIST       0x00000040u
+#define CLP_CAP_MANAGER_GAMEDB 0x00000080u
+#define CLP_CAP_MANAGER_MULTIBOOT 0x00000100u
+#define CLP_CAP_STREAM_PUMP   0x00000200u
+#define CLP_CAP_STREAM         0x00000400u
+
+#define CLP_DEFAULT_BLOCK_SIZE 32768u
+#define CLP_DEFAULT_ALIGNMENT  4u
+#define CLP_FRAME_MAX_PAYLOAD_BYTES CLP_DEFAULT_BLOCK_SIZE
+
+#define CLP_CART_ROM_PATH  "/dev/cart/rom"
+#define CLP_CART_SAVE_PATH "/dev/cart/save"
+#define CLP_CART_INFO_PATH "/dev/cart/info"
+
+#define CLP_STORAGE_OPEN_PATH_OFFSET   4u
+#define CLP_STORAGE_READ_REQUEST_BYTES 8u
+#define CLP_STORAGE_WRITE_DATA_OFFSET  4u
+/* Protocol frame ceiling. Runtime transfer size is chosen by caller buffer,
+ * backend limits, and this per-frame maximum. */
+#define CLP_STORAGE_WRITE_FRAME_MAX_DATA \
+    (CLP_DEFAULT_BLOCK_SIZE - CLP_STORAGE_WRITE_DATA_OFFSET)
+#define CLP_STORAGE_SEEK_REQUEST_BYTES 12u
+#define CLP_STORAGE_COPY_SRC_PATH_OFFSET 4u
+#define CLP_STORAGE_LIST_REQUEST_FIXED_BYTES 12u
+#define CLP_STORAGE_LIST_PATH_OFFSET CLP_STORAGE_LIST_REQUEST_FIXED_BYTES
+#define CLP_STORAGE_LIST_RESPONSE_HEADER_BYTES 8u
+#define CLP_STORAGE_DIR_ENTRY_BYTES 12u
+#define CLP_STORAGE_DIR_ENTRY_MAX_NAME 255u
+
+#define CLP_STORAGE_OPEN_RESPONSE_WORDS 1u
+#define CLP_STORAGE_RW_RESPONSE_WORDS   1u
+#define CLP_STORAGE_STAT_RESPONSE_WORDS 5u
+#define CLP_STORAGE_LIST_DONE 0xffffffffu
+
+#define CLP_NET_OPEN_REQUEST_BYTES 12u
+#define CLP_NET_BIND_REQUEST_BYTES 12u
+#define CLP_NET_LISTEN_REQUEST_BYTES 8u
+#define CLP_NET_ACCEPT_REQUEST_BYTES 4u
+#define CLP_NET_ACCEPT_RESPONSE_BYTES 12u
+#define CLP_NET_SEND_DATA_OFFSET   4u
+#define CLP_NET_SENDTO_DATA_OFFSET 12u
+#define CLP_NET_RECV_REQUEST_BYTES 8u
+#define CLP_NET_RECVFROM_REQUEST_BYTES 8u
+#define CLP_NET_RECVFROM_ADDR_BYTES 8u
+#define CLP_NET_SEND_FRAME_MAX_DATA \
+    (CLP_FRAME_MAX_PAYLOAD_BYTES - CLP_NET_SEND_DATA_OFFSET)
+#define CLP_NET_SENDTO_FRAME_MAX_DATA \
+    (CLP_FRAME_MAX_PAYLOAD_BYTES - CLP_NET_SENDTO_DATA_OFFSET)
+#define CLP_NET_RECV_FRAME_MAX_DATA CLP_FRAME_MAX_PAYLOAD_BYTES
+#define CLP_NET_RECVFROM_FRAME_MAX_DATA \
+    (CLP_FRAME_MAX_PAYLOAD_BYTES - CLP_NET_RECVFROM_ADDR_BYTES)
+#define CLP_NET_POLL_REQUEST_BYTES 4u
+#define CLP_NET_POLL_RESPONSE_BYTES 4u
+#define CLP_NET_STATUS_REQUEST_BYTES 4u
+#define CLP_NET_STATUS_RESPONSE_BYTES 60u
+#define CLP_NET_CONFIG_BYTES 108u
+#define CLP_NET_CONFIG_SSID_BYTES 32u
+#define CLP_NET_CONFIG_PASSWORD_BYTES 64u
+#define CLP_NET_RESOLVE_HOST_OFFSET 4u
+#define CLP_NET_OPEN_RESPONSE_WORDS 1u
+#define CLP_NET_RW_RESPONSE_WORDS   1u
+#define CLP_NET_RESOLVE_RESPONSE_WORDS 1u
+#define CLP_NET_SCAN_REQUEST_BYTES  8u
+#define CLP_NET_SCAN_RESPONSE_HEADER_BYTES 8u
+#define CLP_NET_SCAN_AP_BYTES       (12u + CLP_NET_CONFIG_SSID_BYTES)
+#define CLP_NET_SCAN_MAX_RESPONSE_APS 4u
+#define CLP_NET_SCAN_MAX_RESPONSE_BYTES \
+    (CLP_NET_SCAN_RESPONSE_HEADER_BYTES + \
+     CLP_NET_SCAN_AP_BYTES * CLP_NET_SCAN_MAX_RESPONSE_APS)
+#define CLP_NET_WEB_CONTROL_REQUEST_BYTES 4u
+
+#define CLP_NET_WEB_CONTROL_STOP  0u
+#define CLP_NET_WEB_CONTROL_START 1u
+
+#define CLP_NET_SOCKET_FLAG_CONNECTED  0x00000001u
+#define CLP_NET_SOCKET_FLAG_CONNECTING 0x00000002u
+#define CLP_NET_SOCKET_FLAG_READABLE   0x00000004u
+#define CLP_NET_SOCKET_FLAG_WRITABLE   0x00000008u
+
+#define CLP_NET_STATUS_CONNECT_IF_NEEDED 0x00000001u
+
+#define CLP_NET_CONFIG_FLAG_DISABLED         0x00000001u
+#define CLP_NET_CONFIG_FLAG_LAZY             0x00000002u
+#define CLP_NET_CONFIG_FLAG_POWER_SAVE       0x00000004u
+#define CLP_NET_CONFIG_FLAG_HAS_SSID         0x00000008u
+#define CLP_NET_CONFIG_FLAG_PASSWORD_PRESENT 0x00000010u
+#define CLP_NET_CONFIG_FLAG_STORED_PASSWORD  0x00000020u
+#define CLP_NET_CONFIG_FLAG_EFFECTIVE_SSID   0x00000040u
+#define CLP_NET_CONFIG_FLAG_CLEAR_CREDENTIALS 0x00000080u
+#define CLP_NET_CONFIG_FLAG_WEB_ENABLED      0x00000100u
+
+#define CLP_NET_STATUS_FLAG_CONNECTED    0x00000001u
+#define CLP_NET_STATUS_FLAG_STARTED      0x00000002u
+#define CLP_NET_STATUS_FLAG_DISABLED     0x00000004u
+#define CLP_NET_STATUS_FLAG_LAZY         0x00000008u
+#define CLP_NET_STATUS_FLAG_POWER_SAVE   0x00000010u
+#define CLP_NET_STATUS_FLAG_WEB_SERVER   0x00000020u
+#define CLP_NET_STATUS_FLAG_USER_REQUESTED 0x00000040u
+#define CLP_NET_STATUS_FLAG_WEB_ENABLED  0x00000080u
+
+#define CLP_NET_SOURCE_NONE     0u
+#define CLP_NET_SOURCE_SD       1u
+#define CLP_NET_SOURCE_LITTLEFS 2u
+
+#define CLP_BLE_CONNECT_REQUEST_BYTES   8u
+#define CLP_BLE_GATT_READ_REQUEST_BYTES 12u
+#define CLP_BLE_GATT_FIND_CHR16_REQUEST_BYTES 12u
+#define CLP_BLE_GATT_FIND_CHR16_RESPONSE_BYTES 8u
+#define CLP_BLE_GATT_FIND_SERVICE_REQUEST_BYTES 12u
+#define CLP_BLE_GATT_FIND_SERVICE_RESPONSE_BYTES 8u
+#define CLP_BLE_GATT_FIND_CHR_REQUEST_BYTES 12u
+#define CLP_BLE_GATT_FIND_CHR_RESPONSE_BYTES 12u
+#define CLP_BLE_GATT_FIND_DESC_REQUEST_BYTES 12u
+#define CLP_BLE_GATT_FIND_DESC_RESPONSE_BYTES 8u
+#define CLP_BLE_GATT_NOTIFY_REQUEST_BYTES 12u
+#define CLP_BLE_GATT_WRITE_DATA_OFFSET  8u
+#define CLP_BLE_GATT_READ_FRAME_MAX_DATA CLP_FRAME_MAX_PAYLOAD_BYTES
+#define CLP_BLE_GATT_WRITE_FRAME_MAX_DATA \
+    (CLP_FRAME_MAX_PAYLOAD_BYTES - CLP_BLE_GATT_WRITE_DATA_OFFSET)
+#define CLP_BLE_CONNECT_RESPONSE_WORDS  1u
+#define CLP_BLE_RW_RESPONSE_WORDS       1u
+#define CLP_BLE_EVENT_NEXT_REQUEST_BYTES 4u
+#define CLP_BLE_EVENT_HEADER_BYTES      12u
+#define CLP_BLE_SCAN_DATA_MAX_BYTES     31u
+#define CLP_BLE_UUID128_BYTES           16u
+#define CLP_BLE_GATT_FIND_SERVICE128_REQUEST_BYTES 24u
+#define CLP_BLE_GATT_FIND_SERVICE128_RESPONSE_BYTES 8u
+#define CLP_BLE_GATT_FIND_CHR128_REQUEST_BYTES 24u
+#define CLP_BLE_GATT_FIND_CHR128_RESPONSE_BYTES 12u
+#define CLP_BLE_GATT_FIND_DESC128_REQUEST_BYTES 24u
+#define CLP_BLE_GATT_FIND_DESC128_RESPONSE_BYTES 8u
+#define CLP_BLE_CONN_UPDATE_REQUEST_BYTES 12u
+#define CLP_BLE_EXCHANGE_MTU_REQUEST_BYTES 6u
+#define CLP_BLE_EXCHANGE_MTU_RESPONSE_WORDS 1u
+#define CLP_BLE_CONN_INFO_REQUEST_BYTES 4u
+#define CLP_BLE_CONN_INFO_RESPONSE_BYTES 32u
+#define CLP_BLE_GATT_READ_LONG_REQUEST_BYTES 12u
+#define CLP_BLE_GATT_WRITE_LONG_DATA_OFFSET 8u
+#define CLP_BLE_GATT_READ_LONG_FRAME_MAX_DATA CLP_FRAME_MAX_PAYLOAD_BYTES
+#define CLP_BLE_GATT_WRITE_LONG_FRAME_MAX_DATA \
+    (CLP_FRAME_MAX_PAYLOAD_BYTES - CLP_BLE_GATT_WRITE_LONG_DATA_OFFSET)
+#define CLP_BLE_PAIR_REQUEST_BYTES 6u
+#define CLP_BLE_PASSKEY_REPLY_REQUEST_BYTES 8u
+#define CLP_BLE_SECURITY_CONFIG_REQUEST_BYTES 8u
+#define CLP_BLE_SCAN_START_EXT_BYTES 16u
+#define CLP_BLE_ADV_NAME_MAX_BYTES 32u
+#define CLP_BLE_ADV_START_HEADER_BYTES 12u
+#define CLP_BLE_ADV_FLAG_APPEARANCE 0x00000001u
+
+#define CLP_BLE_GATTS_UUID128 0x01000000u
+#define CLP_BLE_GATTS_PRIMARY 0x00000002u
+#define CLP_BLE_GATTS_CHR_READ 0x00000001u
+#define CLP_BLE_GATTS_CHR_WRITE 0x00000002u
+#define CLP_BLE_GATTS_CHR_WRITE_NO_RSP 0x00000004u
+#define CLP_BLE_GATTS_CHR_NOTIFY 0x00000008u
+#define CLP_BLE_GATTS_CHR_INDICATE 0x00000010u
+#define CLP_BLE_GATTS_ATTR_READ 0x00000100u
+#define CLP_BLE_GATTS_ATTR_WRITE 0x00000200u
+#define CLP_BLE_GATTS_ATTR_WRITE_NO_RSP 0x00000400u
+#define CLP_BLE_GATTS_READ_ENC 0x00001000u
+#define CLP_BLE_GATTS_WRITE_ENC 0x00002000u
+#define CLP_BLE_GATTS_READ_AUTHEN 0x00004000u
+#define CLP_BLE_GATTS_WRITE_AUTHEN 0x00008000u
+#define CLP_BLE_GATTS_READ_AUTHOR 0x00010000u
+#define CLP_BLE_GATTS_WRITE_AUTHOR 0x00020000u
+#define CLP_BLE_GATTS_NOTIFY_ENC 0x00040000u
+#define CLP_BLE_GATTS_NOTIFY_AUTHEN 0x00080000u
+#define CLP_BLE_GATTS_NOTIFY_AUTHOR 0x00100000u
+#define CLP_BLE_GATTS_ADD_SERVICE_HEADER_BYTES 8u
+#define CLP_BLE_GATTS_ADD_ATTR_HEADER_BYTES 16u
+#define CLP_BLE_GATTS_NOTIFY_DATA_OFFSET 8u
+#define CLP_BLE_GATTS_SET_VALUE_DATA_OFFSET 8u
+#define CLP_BLE_GATTS_GET_VALUE_REQUEST_BYTES 8u
+#define CLP_BLE_GATTS_SUBSCRIBED_REQUEST_BYTES 8u
+#define CLP_BLE_GATTS_ADD_INCLUDE_BYTES 4u
+#define CLP_BLE_GATTS_RESPONSE_WORDS 1u
+#define CLP_BLE_GATTS_VALUE_MAX_BYTES 256u
+#define CLP_BLE_GATTS_WRITE_EVENT_HEADER_BYTES 4u
+#define CLP_BLE_GATTS_SUBSCRIBED_NOTIFY 0x00000001u
+#define CLP_BLE_GATTS_SUBSCRIBED_INDICATE 0x00000002u
+#define CLP_BLE_GATTS_FRAME_MAX_DATA \
+    (CLP_FRAME_MAX_PAYLOAD_BYTES - CLP_BLE_GATTS_NOTIFY_DATA_OFFSET)
+
+#define CLP_BLE_CONN_FLAG_CONNECTED     0x00000001u
+#define CLP_BLE_CONN_FLAG_ENCRYPTED     0x00000002u
+#define CLP_BLE_CONN_FLAG_AUTHENTICATED 0x00000004u
+#define CLP_BLE_CONN_FLAG_BONDED        0x00000008u
+
+#define CLP_BLE_EVENT_NONE           0u
+#define CLP_BLE_EVENT_SCAN_RESULT    1u
+#define CLP_BLE_EVENT_SCAN_COMPLETE  2u
+#define CLP_BLE_EVENT_GATT_DATA      3u
+#define CLP_BLE_EVENT_PAIR_COMPLETE  4u
+#define CLP_BLE_EVENT_PASSKEY_REQ    5u
+#define CLP_BLE_EVENT_DISCONNECT     6u
+#define CLP_BLE_EVENT_SUBSCRIBE      8u
+#define CLP_BLE_EVENT_CONNECT        9u
+#define CLP_BLE_EVENT_GATTS_WRITE    10u
+#define CLP_BLE_EVENT_GATTS_READ     11u
+#define CLP_BLE_EVENT_FLAG_CONNECTABLE 0x00000001u
+#define CLP_BLE_EVENT_FLAG_INDICATION  0x00000002u
+#define CLP_BLE_NOTIFY_DISABLE 0u
+#define CLP_BLE_NOTIFY_ENABLE  1u
+#define CLP_BLE_PASSKEY_ACTION_NONE    0u
+#define CLP_BLE_PASSKEY_ACTION_OOB     1u
+#define CLP_BLE_PASSKEY_ACTION_INPUT   2u
+#define CLP_BLE_PASSKEY_ACTION_DISPLAY 3u
+#define CLP_BLE_PASSKEY_ACTION_NUMCMP  4u
+#define CLP_BLE_PASSKEY_ACTION_OOB_SC  5u
+#define CLP_BLE_PASSKEY_ACTION_STATIC  6u
+#define CLP_BLE_SCAN_FLAG_ACTIVE       0x00000001u
+#define CLP_BLE_SCAN_FLAG_FILTER_DUP   0x00000002u
+#define CLP_BLE_SECURITY_BOND          0x00000001u
+#define CLP_BLE_SECURITY_MITM          0x00000002u
+#define CLP_BLE_SECURITY_SC            0x00000004u
+#define CLP_BLE_SECURITY_SC_ONLY       0x00000008u
+#define CLP_BLE_SECURITY_KEY_DIST_ENC  0x00000001u
+#define CLP_BLE_SECURITY_KEY_DIST_ID   0x00000002u
+
+#define CLP_MANAGER_FONT_LOOKUP_MAX_KEYS 26u
+#define CLP_MANAGER_FONT_LOOKUP_MAX_RECORDS 4u
+#define CLP_MANAGER_FONT_UTF8_BYTES 4u
+#define CLP_MANAGER_FONT_TILE_BYTES 128u
+#define CLP_MANAGER_FONT_RECORD_BYTES \
+    (CLP_MANAGER_FONT_UTF8_BYTES + CLP_MANAGER_FONT_TILE_BYTES)
+#define CLP_MANAGER_FONT_LOOKUP_MAX_RESPONSE_BYTES \
+    (CLP_MANAGER_FONT_RECORD_BYTES * CLP_MANAGER_FONT_LOOKUP_MAX_RECORDS)
+#define CLP_MANAGER_GAMEDB_LOOKUP_REQUEST_BYTES 4u
+#define CLP_MANAGER_GAMEDB_LOOKUP_RESPONSE_WORDS 2u
+#define CLP_FLASH_RAW_READY 0x46524459u
+#define CLP_FLASH_RAW_BLOCK 0x46424c4bu
+#define CLP_FLASH_RAW_BUSY  0x46425553u
+#define CLP_FLASH_RAW_DONE  0x46444f4eu
+#define CLP_FLASH_RAW_ERROR 0x46455252u
+#define CLP_FLASH_RAW_POLL  0x46504f4cu
+#define CLP_FLASH_RAW_RESULT 0x46525354u
+#define CLP_FLASH_RAW_OFFSET 0x464f4646u
+#define CLP_FLASH_RAW_PAYLOAD 0x46504159u
+#define CLP_FLASH_RAW_ACK 0x4641434bu
+#define CLP_FLASH_RAW_BLOCK_SIZE 4096u
+
+#define CLP_STREAM_MAX_SLOT_BYTES 65535u
+#define CLP_STREAM_DEFAULT_SLOT_BYTES 4096u
+#define CLP_STREAM_OPEN_FIXED_BYTES 20u
+#define CLP_STREAM_OPEN_PATH_OFFSET CLP_STREAM_OPEN_FIXED_BYTES
+#define CLP_STREAM_CLOSE_REQUEST_BYTES 4u
+#define CLP_STREAM_POLL_REQUEST_BYTES 4u
+#define CLP_STREAM_POLL_RESPONSE_BYTES 16u
+#define CLP_STREAM_CREDIT_REQUEST_BYTES 12u
+#define CLP_STREAM_SEEK_REQUEST_BYTES 12u
+#define CLP_STREAM_RECV_REQUEST_BYTES 8u
+#define CLP_STREAM_SEND_DATA_OFFSET 4u
+#define CLP_STREAM_PUMP_REQUEST_BYTES 4u
+#define CLP_STREAM_SEND_RESPONSE_WORDS 1u
+#define CLP_STREAM_OPEN_RESPONSE_WORDS 4u
+#define CLP_STREAM_FLAG_RX        0x00000001u
+#define CLP_STREAM_FLAG_TX        0x00000002u
+#define CLP_STREAM_FLAG_RELIABLE  0x00000004u
+#define CLP_STREAM_FLAG_LOW_LATENCY 0x00000008u
+#define CLP_STREAM_FLAG_HIGH_THROUGHPUT 0x00000010u
+#define CLP_STREAM_SLOT_READY     0x0001u
+#define CLP_STREAM_SLOT_CONSUMED  0x0002u
+#define CLP_STREAM_SLOT_TX_READY  0x0004u
+#define CLP_STREAM_SLOT_ERROR     0x8000u
+
+#if CLP_FLASH_RAW_BLOCK_SIZE == 0u || \
+    (CLP_DEFAULT_BLOCK_SIZE % CLP_FLASH_RAW_BLOCK_SIZE) != 0u || \
+    CLP_FLASH_RAW_BLOCK_SIZE > 65535u
+#error "CLP_FLASH_RAW_BLOCK_SIZE must divide CLP_DEFAULT_BLOCK_SIZE and fit in a 16-bit slot length"
+#endif
+
+typedef enum clp_packet_type {
+    CLP_TYPE_NOP = 0x0,
+    CLP_TYPE_COMMAND = 0x1,
+    CLP_TYPE_RESPONSE = 0x2,
+    CLP_TYPE_EVENT = 0x3,
+    CLP_TYPE_BULK_BEGIN = 0x4,
+    CLP_TYPE_BULK_DATA = 0x5,
+    CLP_TYPE_BULK_END = 0x6,
+    CLP_TYPE_ACK = 0x7,
+    CLP_TYPE_ERROR = 0x8,
+} clp_packet_type_t;
+
+typedef enum clp_channel {
+    CLP_CH_CONTROL = 0x00,
+    CLP_CH_MANAGER = 0x01,
+    CLP_CH_STORAGE = 0x03,
+    CLP_CH_NET = 0x04,
+    CLP_CH_BLE = 0x05,
+    CLP_CH_DEBUG = 0x06,
+    CLP_CH_STREAM = 0x07,
+    CLP_CH_RESERVED = 0x7f,
+} clp_channel_t;
+
+typedef enum clp_control_opcode {
+    CLP_CTRL_NOP = 0x00,
+    CLP_CTRL_HELLO = 0x01,
+    CLP_CTRL_CAPS = 0x02,
+    CLP_CTRL_HEARTBEAT = 0x03,
+    CLP_CTRL_CANCEL = 0x04,
+    CLP_CTRL_SET_POLL_TICKS = 0x05,
+} clp_control_opcode_t;
+
+typedef enum clp_manager_opcode {
+    CLP_MANAGER_FONT_LOOKUP = 0x01,
+    CLP_MANAGER_GAMEDB_LOOKUP = 0x02,
+    CLP_MANAGER_START_MULTIBOOT = 0x03,
+    CLP_MANAGER_RESET_RUNTIME = 0x04,
+} clp_manager_opcode_t;
+
+typedef enum clp_storage_opcode {
+    CLP_STORAGE_OPEN = 0x01,
+    CLP_STORAGE_CLOSE = 0x02,
+    CLP_STORAGE_READ = 0x03,
+    CLP_STORAGE_WRITE = 0x04,
+    CLP_STORAGE_SEEK = 0x05,
+    CLP_STORAGE_STAT = 0x06,
+    CLP_STORAGE_COPY = 0x07,
+    CLP_STORAGE_FLUSH = 0x08,
+    CLP_STORAGE_LIST = 0x09,
+    CLP_STORAGE_REMOVE = 0x0a,
+    CLP_STORAGE_MKDIR = 0x0b,
+    CLP_STORAGE_RENAME = 0x0c,
+    CLP_STORAGE_FSTAT = 0x0d,
+} clp_storage_opcode_t;
+
+typedef enum clp_net_opcode {
+    CLP_NET_OPEN = 0x01,
+    CLP_NET_CLOSE = 0x02,
+    CLP_NET_SEND = 0x03,
+    CLP_NET_RECV = 0x04,
+    CLP_NET_STATUS = 0x05,
+    CLP_NET_CONFIG_GET = 0x06,
+    CLP_NET_CONFIG_SET = 0x07,
+    CLP_NET_RESOLVE = 0x08,
+    CLP_NET_POLL = 0x09,
+    CLP_NET_SCAN = 0x0a,
+    CLP_NET_SENDTO = 0x0b,
+    CLP_NET_RECVFROM = 0x0c,
+    CLP_NET_BIND = 0x0d,
+    CLP_NET_LISTEN = 0x0e,
+    CLP_NET_ACCEPT = 0x0f,
+    CLP_NET_WEB_CONTROL = 0x10,
+} clp_net_opcode_t;
+
+typedef enum clp_ble_opcode {
+    CLP_BLE_SCAN_START = 0x01,
+    CLP_BLE_SCAN_STOP = 0x02,
+    CLP_BLE_CONNECT = 0x03,
+    CLP_BLE_DISCONNECT = 0x04,
+    CLP_BLE_GATT_READ = 0x05,
+    CLP_BLE_GATT_WRITE = 0x06,
+    CLP_BLE_EVENT_NEXT = 0x07,
+    CLP_BLE_GATT_FIND_CHR16 = 0x08,
+    CLP_BLE_GATT_NOTIFY = 0x09,
+    CLP_BLE_GATT_FIND_SERVICE = 0x0a,
+    CLP_BLE_GATT_FIND_CHR = 0x0b,
+    CLP_BLE_GATT_FIND_DESC = 0x0c,
+    CLP_BLE_GATT_FIND_SERVICE128 = 0x0d,
+    CLP_BLE_GATT_FIND_CHR128 = 0x0e,
+    CLP_BLE_GATT_FIND_DESC128 = 0x0f,
+    CLP_BLE_CONN_UPDATE = 0x10,
+    CLP_BLE_EXCHANGE_MTU = 0x11,
+    CLP_BLE_CONN_INFO = 0x12,
+    CLP_BLE_GATT_READ_LONG = 0x13,
+    CLP_BLE_GATT_WRITE_LONG = 0x14,
+    CLP_BLE_PAIR = 0x15,
+    CLP_BLE_PASSKEY_REPLY = 0x16,
+    CLP_BLE_GATTS_RESET = 0x17,
+    CLP_BLE_GATTS_ADD_SERVICE = 0x18,
+    CLP_BLE_GATTS_ADD_CHR = 0x19,
+    CLP_BLE_GATTS_ADD_DESC = 0x1a,
+    CLP_BLE_GATTS_START = 0x1b,
+    CLP_BLE_GATTS_STOP = 0x1c,
+    CLP_BLE_ADV_START = 0x1d,
+    CLP_BLE_ADV_STOP = 0x1e,
+    CLP_BLE_GATTS_NOTIFY = 0x1f,
+    CLP_BLE_GATTS_SET_VALUE = 0x20,
+    CLP_BLE_GATTS_GET_VALUE = 0x21,
+    CLP_BLE_GATTS_ADD_INCLUDE = 0x22,
+    CLP_BLE_SECURITY_CONFIG = 0x23,
+    CLP_BLE_GATTS_SUBSCRIBED = 0x24,
+} clp_ble_opcode_t;
+
+typedef enum clp_stream_opcode {
+    CLP_STREAM_OPEN = 0x01,
+    CLP_STREAM_CLOSE = 0x02,
+    CLP_STREAM_POLL = 0x03,
+    CLP_STREAM_CREDIT = 0x04,
+    CLP_STREAM_SEEK = 0x05,
+    CLP_STREAM_PAUSE = 0x06,
+    CLP_STREAM_RESUME = 0x07,
+    CLP_STREAM_RECV = 0x08,
+    CLP_STREAM_SEND = 0x09,
+    CLP_STREAM_PUMP = 0x0a,
+} clp_stream_opcode_t;
+
+typedef enum clp_stream_kind {
+    CLP_STREAM_KIND_FILE = 1,
+    CLP_STREAM_KIND_SOCKET = 2,
+    CLP_STREAM_KIND_BLE_NOTIFY = 3,
+    CLP_STREAM_KIND_DEVICE = 4,
+} clp_stream_kind_t;
+
+typedef enum clp_open_flags {
+    CLP_OPEN_READ = 0x0001,
+    CLP_OPEN_WRITE = 0x0002,
+    CLP_OPEN_CREATE = 0x0004,
+    CLP_OPEN_TRUNCATE = 0x0008,
+    CLP_OPEN_APPEND = 0x0010,
+} clp_open_flags_t;
+
+typedef enum clp_copy_flags {
+    CLP_COPY_VERIFY_CRC = 0x0001,
+    CLP_COPY_OVERWRITE = 0x0002,
+    CLP_COPY_STREAMING = 0x0004,
+    CLP_COPY_WINDOWED_ACK = 0x0008,
+} clp_copy_flags_t;
+
+typedef struct clp_storage_caps {
+    uint32_t preferred_block_size;
+    uint32_t max_block_size;
+    uint16_t alignment;
+    uint16_t flags;
+} clp_storage_caps_t;
+
+typedef enum clp_file_type {
+    CLP_FILE_UNKNOWN = 0,
+    CLP_FILE_REGULAR = 1,
+    CLP_FILE_DIRECTORY = 2,
+    CLP_FILE_DEVICE = 3,
+} clp_file_type_t;
+
+typedef enum clp_status {
+    CLP_STATUS_OK = 0,
+    CLP_STATUS_BUSY = 1,
+    CLP_STATUS_UNSUPPORTED = 2,
+    CLP_STATUS_BAD_PACKET = 3,
+    CLP_STATUS_BAD_CRC = 4,
+    CLP_STATUS_TIMEOUT = 5,
+    CLP_STATUS_CANCELLED = 6,
+    CLP_STATUS_IO_ERROR = 7,
+    CLP_STATUS_NOT_FOUND = 8,
+} clp_status_t;
+
+typedef struct clp_header {
+    uint8_t type;
+    uint8_t channel;
+    uint8_t opcode;
+    uint8_t imm;
+    uint32_t length;
+    uint16_t seq;
+    uint16_t flags;
+    uint32_t crc32;
+} clp_header_t;
+
+static inline uint32_t clp_make_word(uint8_t type, uint8_t channel,
+                                     uint8_t opcode, uint8_t imm) {
+    return ((uint32_t)CLP_VERSION << CLP_WORD_VERSION_SHIFT) |
+           ((uint32_t)(type & 0x0fu) << CLP_WORD_TYPE_SHIFT) |
+           ((uint32_t)channel << CLP_WORD_CHANNEL_SHIFT) |
+           ((uint32_t)opcode << CLP_WORD_OPCODE_SHIFT) |
+           (uint32_t)imm;
+}
+
+static inline uint8_t clp_word_version(uint32_t word) {
+    return (uint8_t)((word & CLP_WORD_VERSION_MASK) >> CLP_WORD_VERSION_SHIFT);
+}
+
+static inline uint8_t clp_word_type(uint32_t word) {
+    return (uint8_t)((word & CLP_WORD_TYPE_MASK) >> CLP_WORD_TYPE_SHIFT);
+}
+
+static inline uint8_t clp_word_channel(uint32_t word) {
+    return (uint8_t)((word & CLP_WORD_CHANNEL_MASK) >> CLP_WORD_CHANNEL_SHIFT);
+}
+
+static inline uint8_t clp_word_opcode(uint32_t word) {
+    return (uint8_t)((word & CLP_WORD_OPCODE_MASK) >> CLP_WORD_OPCODE_SHIFT);
+}
+
+static inline uint8_t clp_word_imm(uint32_t word) {
+    return (uint8_t)(word & CLP_WORD_IMM_MASK);
+}
+
+static inline uint32_t clp_make_seq_flags(uint16_t seq, uint16_t flags) {
+    return ((uint32_t)seq << 16u) | (uint32_t)flags;
+}
+
+static inline uint16_t clp_seq_from_word(uint32_t word) {
+    return (uint16_t)(word >> 16u);
+}
+
+static inline uint16_t clp_flags_from_word(uint32_t word) {
+    return (uint16_t)(word & 0xffffu);
+}
+
+static inline uint32_t clp_pack_file_meta(uint16_t alignment, uint8_t type,
+                                          uint8_t flags) {
+    return (uint32_t)alignment |
+           ((uint32_t)type << 16u) |
+           ((uint32_t)flags << 24u);
+}
+
+static inline uint16_t clp_file_meta_alignment(uint32_t word) {
+    return (uint16_t)(word & 0xffffu);
+}
+
+static inline uint8_t clp_file_meta_type(uint32_t word) {
+    return (uint8_t)((word >> 16u) & 0xffu);
+}
+
+static inline uint8_t clp_file_meta_flags(uint32_t word) {
+    return (uint8_t)((word >> 24u) & 0xffu);
+}
+
+static inline uint32_t clp_load_le32(const void *src, uint32_t available) {
+    const uint8_t *bytes = (const uint8_t *)src;
+    uint32_t word = 0;
+    for (uint32_t i = 0; i < 4u && i < available; ++i) {
+        word |= (uint32_t)bytes[i] << (i * 8u);
+    }
+    return word;
+}
+
+static inline void clp_store_le32(void *dst,
+                                  uint32_t word,
+                                  uint32_t available) {
+    uint8_t *bytes = (uint8_t *)dst;
+    for (uint32_t i = 0; i < 4u && i < available; ++i) {
+        bytes[i] = (uint8_t)(word >> (i * 8u));
+    }
+}
+
+bool clp_decode_header_words(const uint32_t words[4], clp_header_t *out);
+void clp_encode_header_words(const clp_header_t *header, uint32_t words[4]);
+size_t clp_aligned_length(size_t length);
+bool clp_is_protocol_word(uint32_t word);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
