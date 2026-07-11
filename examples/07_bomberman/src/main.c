@@ -40,7 +40,11 @@
 #define WIFI_SOCKET_COUNT 4u
 #define WIFI_SCRATCH_BYTES 128u
 #define WIFI_MAGIC 0x434d4242u  /* "BMBB" */
-#define WIFI_DISCOVER_FRAMES 300u
+#define WIFI_CONNECT_REQUESTS 4u
+#define WIFI_CONNECT_POLL_FRAMES 60u
+#define WIFI_DISCOVER_FRAMES 1800u
+#define WIFI_DISCOVER_SEND_INTERVAL 20u
+#define WIFI_TCP_CONNECT_POLLS 300u
 
 /* === Game state === */
 typedef struct {
@@ -75,6 +79,8 @@ static uint8_t g_is_host;
 static uint8_t g_my_id;
 static int g_last_error;
 static uint32_t g_frame;
+static uint32_t g_wifi_ip;
+static uint32_t g_wifi_broadcast;
 
 static const char *transport_name(void) {
     return g_transport == TRANSPORT_WIFI ? "WiFi" : "BLE";
@@ -117,23 +123,127 @@ static void sockaddr4(cl_sockaddr_t *addr, uint32_t ip, uint16_t port) {
     a4->sin_addr.s_addr = cl_htonl(ip);
 }
 
-static int wifi_connect(void) {
+static int wifi_status_connected(const cl_net_status_t *st) {
+    return st &&
+           (st->flags & CLP_NET_STATUS_FLAG_CONNECTED) &&
+           st->ip != 0u;
+}
+
+static uint32_t wifi_guess_broadcast(uint32_t ip, uint32_t gateway) {
+    if (!ip) {
+        return 0xffffffffu;
+    }
+    uint32_t ip24 = ip & 0xffffff00u;
+    if (!gateway || ip24 == (gateway & 0xffffff00u)) {
+        return ip24 | 0xffu;
+    }
+    return 0xffffffffu;
+}
+
+static void wifi_draw_connect(const cl_net_status_t *st, uint32_t attempt,
+                              uint32_t poll) {
+    ex_clear_body();
+    cl_gba_text_draw(16, 42, "CONNECTING WIFI", EX_COLOR_TEXT);
+    cl_gba_text_draw(16, 62, "SSID", EX_COLOR_DIM);
+    cl_gba_text_draw(64, 62, st && st->ssid[0] ? st->ssid : "(config)",
+                     EX_COLOR_TEXT);
+    cl_gba_text_draw(16, 82, "IP", EX_COLOR_DIM);
+    if (st && st->ip) {
+        ex_draw_ipv4(64, 82, st->ip, EX_COLOR_OK);
+    } else {
+        cl_gba_text_draw(64, 82, "WAIT", EX_COLOR_DIM);
+    }
+    cl_gba_text_draw(16, 102, "TRY", EX_COLOR_DIM);
+    ex_draw_u32_dec(64, 102, attempt + 1u, EX_COLOR_TEXT);
+    cl_gba_text_draw(96, 102, "/", EX_COLOR_DIM);
+    ex_draw_u32_dec(108, 102, WIFI_CONNECT_REQUESTS, EX_COLOR_DIM);
+    cl_gba_text_draw(148, 102, "POLL", EX_COLOR_DIM);
+    ex_draw_u32_dec(196, 102, poll, EX_COLOR_DIM);
+    ex_draw_footer("WAIT FOR WIFI");
+    ex_present();
+}
+
+static void wifi_draw_discovery(const char *phase, uint32_t frame) {
+    ex_clear_body();
+    cl_gba_text_draw(16, 42, phase, EX_COLOR_TEXT);
+    cl_gba_text_draw(16, 62, g_is_host ? "HOST" : "JOIN", EX_COLOR_DIM);
+    cl_gba_text_draw(16, 82, "IP", EX_COLOR_DIM);
+    ex_draw_ipv4(64, 82, g_wifi_ip, EX_COLOR_OK);
+    cl_gba_text_draw(16, 102, "BCAST", EX_COLOR_DIM);
+    ex_draw_ipv4(64, 102, g_wifi_broadcast, EX_COLOR_TEXT);
+    cl_gba_text_draw(16, 122, "TIME", EX_COLOR_DIM);
+    ex_draw_u32_dec(64, 122,
+                    (WIFI_DISCOVER_FRAMES - frame + 59u) / 60u,
+                    EX_COLOR_TEXT);
+    ex_draw_footer("WAIT FOR PEER");
+    ex_present();
+}
+
+static int wifi_connect_once(uint32_t flags, cl_net_status_t *out_status) {
     cl_net_status_t st;
-    int ret = cl_net_status(&g_net, 1u, &st);  /* flag=1 = connect if needed */
+    int ret = cl_net_status(&g_net, flags, &st);
     if (ret < 0) return ret;
-    return st.flags & 0x01u ? 0 : -1;  /* bit 0 = connected */
+    if (out_status) *out_status = st;
+    if (!wifi_status_connected(&st)) {
+        return -1;
+    }
+    g_wifi_ip = st.ip;
+    g_wifi_broadcast = wifi_guess_broadcast(st.ip, st.gateway);
+    return 0;
 }
 
 static int wifi_init(void) {
     cl_net_init(&g_net, &g_link.client, g_radio_scratch.net,
                 sizeof(g_radio_scratch.net));
     cl_socket_init(&g_sockets, &g_net, g_socket_fds, WIFI_SOCKET_COUNT);
-    /* Wait for WiFi connection */
-    for (int i = 0; i < 600; ++i) {
-        if (wifi_connect() == 0) return 0;
-        cl_gba_wait_vblank();
+
+    g_wifi_ip = 0;
+    g_wifi_broadcast = 0xffffffffu;
+
+    for (uint32_t attempt = 0; attempt < WIFI_CONNECT_REQUESTS; ++attempt) {
+        cl_net_status_t st;
+        memset(&st, 0, sizeof(st));
+        wifi_draw_connect(&st, attempt, 0u);
+
+        int ret = wifi_connect_once(CLP_NET_STATUS_CONNECT_IF_NEEDED, &st);
+        wifi_draw_connect(&st, attempt, 0u);
+        if (ret == 0) return 0;
+        if (ret < 0 && ret != -1) return ret;
+
+        for (uint32_t poll = 0; poll < WIFI_CONNECT_POLL_FRAMES; ++poll) {
+            ret = wifi_connect_once(0u, &st);
+            if ((poll & 7u) == 0u || ret == 0) {
+                wifi_draw_connect(&st, attempt, poll + 1u);
+            }
+            if (ret == 0) return 0;
+            if (ret < 0 && ret != -1) return ret;
+            cl_gba_wait_vblank();
+        }
     }
     return -1;
+}
+
+static int wifi_send_discover_to(int udp_fd, uint32_t ip,
+                                 const uint8_t pkt[8]) {
+    cl_sockaddr_t addr;
+    sockaddr4(&addr, ip, WIFI_UDP_PORT);
+    return cl_socket_sendto(&g_sockets, udp_fd, pkt, 8u, 0,
+                            &addr, sizeof(cl_sockaddr_in_t));
+}
+
+static int wifi_wait_tcp_connected(int fd) {
+    for (uint32_t i = 0; i < WIFI_TCP_CONNECT_POLLS; ++i) {
+        uint32_t flags = 0;
+        int ret = cl_socket_poll(&g_sockets, fd, &flags);
+        if (ret < 0) {
+            return ret;
+        }
+        if (flags & CLP_NET_SOCKET_FLAG_CONNECTED) {
+            return 0;
+        }
+        cl_gba_wait_vblank();
+    }
+    return -5;
 }
 
 static int wifi_host(void) {
@@ -142,20 +252,34 @@ static int wifi_host(void) {
     if (listen_fd < 0) return listen_fd;
     cl_sockaddr_t addr;
     sockaddr4(&addr, 0u, WIFI_TCP_PORT);
-    if (cl_socket_bind(&g_sockets, listen_fd, &addr, sizeof(addr)) < 0) return -2;
-    if (cl_socket_listen(&g_sockets, listen_fd, 1) < 0) return -3;
+    if (cl_socket_bind(&g_sockets, listen_fd, &addr, sizeof(addr)) < 0) {
+        cl_socket_close(&g_sockets, listen_fd);
+        return -2;
+    }
+    if (cl_socket_listen(&g_sockets, listen_fd, 1) < 0) {
+        cl_socket_close(&g_sockets, listen_fd);
+        return -3;
+    }
 
     int udp_fd = cl_socket_socket(&g_sockets, CL_AF_INET, CL_SOCK_DGRAM, 0);
-    if (udp_fd < 0) return udp_fd;
+    if (udp_fd < 0) {
+        cl_socket_close(&g_sockets, listen_fd);
+        return udp_fd;
+    }
     sockaddr4(&addr, 0u, WIFI_UDP_PORT);
-    if (cl_socket_bind(&g_sockets, udp_fd, &addr, sizeof(addr)) < 0) return -4;
+    if (cl_socket_bind(&g_sockets, udp_fd, &addr, sizeof(addr)) < 0) {
+        cl_socket_close(&g_sockets, udp_fd);
+        cl_socket_close(&g_sockets, listen_fd);
+        return -4;
+    }
 
-    cl_net_status_t st;
-    cl_net_status(&g_net, 0, &st);
-    uint32_t my_ip = st.ip;
+    uint32_t my_ip = g_wifi_ip;
 
     /* Discovery loop: reply to DISCOVER, wait for TCP connect */
     for (uint32_t frame = 0; frame < WIFI_DISCOVER_FRAMES; ++frame) {
+        if ((frame % 60u) == 0u) {
+            wifi_draw_discovery("HOST DISCOVERY", frame);
+        }
         /* Accept TCP connection */
         cl_sockaddr_t remote;
         cl_socklen_t rlen = sizeof(remote);
@@ -197,11 +321,12 @@ static int wifi_join(void) {
     if (udp_fd < 0) return udp_fd;
     cl_sockaddr_t addr;
     sockaddr4(&addr, 0u, WIFI_UDP_PORT);
-    cl_socket_bind(&g_sockets, udp_fd, &addr, sizeof(addr));
+    if (cl_socket_bind(&g_sockets, udp_fd, &addr, sizeof(addr)) < 0) {
+        cl_socket_close(&g_sockets, udp_fd);
+        return -4;
+    }
 
-    cl_net_status_t st;
-    cl_net_status(&g_net, 0, &st);
-    uint32_t my_ip = st.ip;
+    uint32_t my_ip = g_wifi_ip;
 
     uint8_t discover[8];
     discover[0] = (uint8_t)(WIFI_MAGIC & 0xffu); discover[1] = (uint8_t)(WIFI_MAGIC >> 8u);
@@ -209,13 +334,15 @@ static int wifi_join(void) {
     discover[4] = 0; discover[5] = 0; discover[6] = 0; discover[7] = 0;
 
     for (uint32_t frame = 0; frame < WIFI_DISCOVER_FRAMES; ++frame) {
-        if ((frame % 30u) == 0)
-            cl_socket_sendto(&g_sockets, udp_fd, discover, 8u, 0,
-                             (cl_sockaddr_t *)&(cl_sockaddr_in_t){
-                                 .sin_family = CL_AF_INET,
-                                 .sin_port = cl_htons(WIFI_UDP_PORT),
-                                 .sin_addr.s_addr = cl_htonl(0xffffffffu)
-                             }, sizeof(cl_sockaddr_in_t));
+        if ((frame % 60u) == 0u) {
+            wifi_draw_discovery("JOIN DISCOVERY", frame);
+        }
+        if ((frame % WIFI_DISCOVER_SEND_INTERVAL) == 0u) {
+            wifi_send_discover_to(udp_fd, g_wifi_broadcast, discover);
+            if (g_wifi_broadcast != 0xffffffffu) {
+                wifi_send_discover_to(udp_fd, 0xffffffffu, discover);
+            }
+        }
         uint8_t reply[16];
         cl_sockaddr_t sender;
         cl_socklen_t slen = sizeof(sender);
@@ -233,10 +360,19 @@ static int wifi_join(void) {
                 cl_socket_close(&g_sockets, udp_fd);
                 /* TCP connect */
                 int tcp_fd = cl_socket_socket(&g_sockets, CL_AF_INET, CL_SOCK_STREAM, 0);
+                if (tcp_fd < 0)
+                    return tcp_fd;
                 cl_sockaddr_t tcp_addr;
                 sockaddr4(&tcp_addr, g_peer_ip, tcp_port);
-                if (cl_socket_connect(&g_sockets, tcp_fd, &tcp_addr, sizeof(tcp_addr)) < 0)
+                if (cl_socket_connect(&g_sockets, tcp_fd, &tcp_addr, sizeof(tcp_addr)) < 0) {
+                    cl_socket_close(&g_sockets, tcp_fd);
                     return -6;
+                }
+                wifi_draw_discovery("TCP CONNECT", frame);
+                if (wifi_wait_tcp_connected(tcp_fd) < 0) {
+                    cl_socket_close(&g_sockets, tcp_fd);
+                    return -6;
+                }
                 return tcp_fd;
             }
         }
