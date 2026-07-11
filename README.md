@@ -91,6 +91,18 @@ make -C examples
 Each example emits a `.mb.gba` multiboot image. Copy it to the SD card and run
 it from the manager file browser.
 
+## BLE Example Note
+
+BLE hosts can automatically reconnect to a previously paired HID device. If a
+PC or phone is still connected to the `08_ble_hid_gamepad` example
+(`ChisLink Pad`), it can interfere with peer-to-peer BLE examples such as
+`07_bomberman`.
+
+Before testing BLE Link examples, disconnect or forget `ChisLink Pad` on the
+host, or temporarily disable the host Bluetooth radio. Restart the involved
+ChisLink devices or reload the target `.mb.gba` examples so the BLE profile
+starts from a clean state.
+
 ## License
 
 MIT. See [LICENSE](./LICENSE).

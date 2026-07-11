@@ -91,6 +91,16 @@ make -C examples
 每个示例都会生成一个 `.mb.gba` 多重启动镜像。复制到 SD 卡后，可以在
 Manager 文件浏览器中运行。
 
+## BLE 示例注意事项
+
+PC、手机等 BLE 主机可能会自动重连之前配对过的 HID 设备。如果主机仍然
+连接着 `08_ble_hid_gamepad` 示例（`ChisLink Pad`），它可能会干扰
+`07_bomberman` 这类点对点 BLE Link 示例，导致发现或 GATT 连接错误。
+
+测试 BLE Link 示例前，请先在主机侧断开或忽略 `ChisLink Pad`，或者临时
+关闭主机蓝牙。切换示例时，建议重启参与测试的 ChisLink 设备，或重新加载
+目标 `.mb.gba`，让 BLE profile 从干净状态启动。
+
 ## 许可证
 
 MIT。详见 [LICENSE](./LICENSE)。
