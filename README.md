@@ -4,6 +4,7 @@ ChisLink is a portable GBA cartridge manager and MCU service platform. It can
 start a GBA multiboot manager, manage GBA cartridges, browse SD files, provide
 WiFi/BLE services to GBA software, and expose a C SDK for third-party programs.
 
+- README: [English](./README.md) | [中文](./README-cn.md)
 - User manuals: [English](./docs/manual-en.md) | [中文](./docs/manual-zh.md)
 - ChisFlash cartridges: [ChisFlash](https://github.com/ChisBread/ChisFlash)
 - Store: [ChisFamily Official Store](https://www.aliexpress.com/item/1005011958199331.html)

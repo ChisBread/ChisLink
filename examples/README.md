@@ -1,8 +1,9 @@
 # ChisLink SDK Examples
 
-These examples are small GBA multiboot programs that exercise the public
-ChisLink SDK APIs. They are intentionally plain C and keep all SDK working
-memory explicit in the application.
+These examples are small GBA multiboot programs that demonstrate the public
+ChisLink SDK. They are written in plain C and keep SDK working memory explicit
+in the application, so each project can be used as a starting point for
+third-party GBA programs.
 
 Build all examples:
 
@@ -18,138 +19,235 @@ make -C examples/03_socket_airlink
 
 Each example produces a `.mb.gba` multiboot image in its own directory.
 Generated `.mb.gba`, legacy `.gba`, `.elf`, and `build/` outputs are ignored
-by git.
+by git. Copy the built `.mb.gba` file to the SD card and run it from the
+ChisLink Manager file browser.
 
-## Examples
+## Example Index
 
-`00_basic_link`
+| Project | Purpose | Main APIs |
+| --- | --- | --- |
+| `00_basic_link` | Minimal client smoke test | client, capabilities |
+| `01_storage_files` | Browse and read SD files | file API |
+| `02_stream_file` | Stream a file from SD | stream API |
+| `03_socket_airlink` | UDP discovery plus TCP exchange | socket API |
+| `04_ble_scan` | BLE central scan | BLE scan/events |
+| `05_cart_backup` | Back up cart saves | cart file backend |
+| `06_file_test` | File API regression test | file, copy, stream |
+| `07_bomberman` | Two-player wireless game | BLE link, socket |
+| `08_ble_hid_gamepad` | BLE HID-style gamepad | BLE GATT server, pairing |
 
-Minimal SIO transport and client setup. It sends `HELLO` and `CAPS`, then
-shows the client state, capability bits, status, and last error.
+## 00_basic_link
 
-Controls: `A` sends `HELLO/CAPS` again.
+Purpose: verify that a GBA program can initialize the ChisLink client and talk
+to the MCU.
 
-`01_storage_files`
+What it demonstrates:
 
-Registers the remote storage file backends and lists `/sd` through the unified
-`cl_file` API. It also tries to read `/sd/.chislink/examples/example.txt` into
-an application-owned 512-byte buffer.
+- Client initialization.
+- `HELLO` and `CAPS` requests.
+- Capability display and simple error reporting.
 
-Controls: `A` refreshes, `R` lists the next page, `L` returns to the first
-page, `B` reads the sample file.
+Controls:
 
-`02_stream_file`
+- `A`: send `HELLO/CAPS` again.
 
-Subscribes to `/sd/.chislink/examples/example.txt` as a stream. The app provides
-two 4 KiB stream slots and consumes data with `cl_stream_recv_slot()`,
-`cl_stream_consumer_peek()`, and `cl_stream_consumer_release()`.
+## 01_storage_files
 
-Requires `/sd/.chislink/examples/example.txt` on the MCU SD card.
+Purpose: show how to access the MCU SD card through the unified file API.
 
-Controls: `A` opens the stream, `B` receives one slot, `START` closes it.
+What it demonstrates:
 
-`03_socket_airlink`
+- Registering remote storage as a `cl_file` backend.
+- Listing `/sd`.
+- Reading `/sd/.chislink/examples/example.txt` into an application-owned
+  512-byte buffer.
 
-Uses the socket compatibility layer with an application-owned fd table. It
-performs the same short Air Link style test as the manager: UDP discovery,
-TCP connect or accept, then a small hello/ack exchange.
+Requirements:
 
-Controls: `A` runs one Air Link attempt.
+- Optional: create `/sd/.chislink/examples/example.txt` to test file reading.
 
-For PC-side testing, run:
+Controls:
 
-```sh
-python3 tools/airlink_peer.py
-```
+- `A`: refresh directory listing.
+- `R`: next page.
+- `L`: first page.
+- `B`: read the sample file.
 
-`04_ble_scan`
+## 02_stream_file
 
-Uses the BLE API with an application-owned scratch buffer. It scans briefly
-and displays up to four advertisements, including RSSI, connectable state,
-partial address, and advertisement name.
+Purpose: receive a file as a stream without hiding large SDK-owned buffers.
 
-Controls: `A` scans again.
+What it demonstrates:
 
-`05_cart_backup`
+- Opening a remote file stream.
+- Providing two 4 KiB stream slots from the application.
+- Consuming data with `cl_stream_recv_slot()`,
+  `cl_stream_consumer_peek()`, and `cl_stream_consumer_release()`.
 
-Registers both remote storage and the local cart backend, configures save
-layout from the MCU game database, and copies `/dev/cart/save` to
-`/sd/.chislink/examples/cart-save.sav` through the unified `cl_file` API.
+Requirements:
 
-Controls: `A` refreshes cart info, `B` backs up save, `L` configures from DB,
-`R` probes save hardware.
+- Create `/sd/.chislink/examples/example.txt` on the SD card.
 
-The example only backs up saves. It does not restore data to the cart.
+Controls:
 
-`06_file_test`
+- `A`: open stream.
+- `B`: receive one slot.
+- `START`: close stream.
 
-Automated regression test for the unified file API. It creates
-`/sd/.chislink/examples/file_test`, then checks mkdir, create/write, stat/fstat, read,
-seek/tell, access, pread, buffered copy, rename, directory listing,
-truncate, stream read, and cleanup.
+## 03_socket_airlink
 
-Controls: none. The test runs once at boot and shows the first failing case.
+Purpose: demonstrate a small LAN peer test using socket-style APIs.
 
-`07_bomberman`
+What it demonstrates:
 
-Small two-player game that demonstrates the SDK as an application dependency
-rather than a fixed manager workflow. It includes both BLE and WiFi transports
-in one ROM. At startup, choose ChisLink BLE Link I/O or WiFi UDP discovery
-plus a TCP session, then choose host or join.
+- Application-owned socket fd table.
+- UDP broadcast discovery.
+- TCP connect or accept.
+- A short hello/ack exchange.
 
-Build it:
+Requirements:
 
-```sh
-make -C examples/07_bomberman
-```
+- Another ChisLink peer, or a compatible program that answers the same UDP/TCP
+  test protocol.
 
-Controls: `A/B` choose link mode and role during setup. In game, D-pad moves,
-`A` drops a bomb, and `START` exits.
+Controls:
 
-`08_ble_hid_gamepad`
+- `A`: run one Air Link attempt.
 
-Uses the generic BLE GATT server API to expose a small HID-shaped gamepad
-service. The SDK does not hard-code HID; this example shows how an application
-can define services, characteristics, descriptors, advertise, receive subscribe
-events, handle numeric-comparison pairing, and send notifications.
+## 04_ble_scan
 
-Controls: during pairing, compare the host code with the GBA code and press
-`A` to confirm or `B` to reject. After pairing, D-pad maps to X/Y axes and
-`A/B/L/R/START/SELECT` map to buttons.
+Purpose: scan nearby BLE devices from a GBA program.
+
+What it demonstrates:
+
+- BLE initialization with an application-owned scratch buffer.
+- Starting a scan and reading BLE events.
+- Displaying RSSI, connectable state, partial address, and advertisement name.
+
+Controls:
+
+- `A`: scan again.
+
+## 05_cart_backup
+
+Purpose: back up the inserted cartridge save through the same file abstraction
+used by SD storage.
+
+What it demonstrates:
+
+- Registering remote storage and local cartridge file backends.
+- Reading cart metadata and save layout.
+- Configuring save layout from the MCU game database.
+- Probing save hardware.
+- Copying `/dev/cart/save` to `/sd/.chislink/examples/cart-save.sav`.
+
+Requirements:
+
+- A cartridge with readable save memory.
+
+Controls:
+
+- `A`: refresh cart info.
+- `B`: back up save.
+- `L`: configure from database.
+- `R`: probe save hardware.
+
+Notes:
+
+- This example only backs up saves. It does not restore data to the cartridge.
+
+## 06_file_test
+
+Purpose: provide a self-contained regression test for the unified file API.
+
+What it demonstrates:
+
+- `mkdir`, create/write, stat/fstat, read, seek/tell, access, pread.
+- Buffered copy.
+- Rename.
+- Directory listing.
+- Truncate.
+- Stream read.
+- Cleanup.
+
+Runtime behavior:
+
+- The test creates `/sd/.chislink/examples/file_test`.
+- It runs once at boot and shows the first failing case.
+
+Controls:
+
+- None.
+
+## 07_bomberman
+
+Purpose: show ChisLink SDK use inside an actual interactive program rather than
+a fixed manager workflow.
+
+What it demonstrates:
+
+- A small two-player game.
+- BLE Link I/O and WiFi socket modes in one ROM.
+- Host/join flow.
+- Repeated send/receive during gameplay.
+
+Requirements:
+
+- Another ChisLink peer running the same example.
+
+Controls:
+
+- Setup: `A/B` choose link mode and role.
+- Game: D-pad moves, `A` drops a bomb, `START` exits.
+
+## 08_ble_hid_gamepad
+
+Purpose: expose the GBA as a BLE HID-style gamepad and demonstrate generic
+GATT server features.
+
+What it demonstrates:
+
+- BLE security configuration.
+- GATT service, characteristic, and descriptor definition.
+- Advertising as a gamepad-like BLE peripheral.
+- Subscription events.
+- Numeric-comparison pairing.
+- Notifications for input reports.
+
+Controls:
+
+- Pairing: compare the host code with the GBA code, press `A` to confirm or
+  `B` to reject.
+- Connected: D-pad maps to X/Y axes, and `A/B/L/R/START/SELECT` map to
+  buttons.
 
 ## Coverage Notes
 
 Self-contained smoke/regression examples:
 
-- Basic SIO/client handshake: `00_basic_link`.
+- Basic client handshake: `00_basic_link`.
 - POSIX-style file operations and stream regression: `06_file_test`.
 
 Environment-dependent examples:
 
-- SD browsing and sample file read: `01_storage_files` needs SD content.
+- SD browsing and sample file read: `01_storage_files` needs SD content for
+  the sample read.
 - Remote file stream receive path: `02_stream_file` needs
   `/sd/.chislink/examples/example.txt`.
 - UDP discovery, TCP connect, listen, accept, send, and receive:
-  `03_socket_airlink` needs `tools/airlink_peer.py` or another ChisLink peer.
-- Save backup: `05_cart_backup` needs a readable cart/save device.
-- BLE Link I/O / WiFi game-link send and receive: `07_bomberman` needs another
+  `03_socket_airlink` needs another compatible peer.
+- Save backup: `05_cart_backup` needs a readable cartridge/save device.
+- BLE Link I/O and WiFi game-link send/receive: `07_bomberman` needs another
   peer.
+- BLE HID behavior: `08_ble_hid_gamepad` needs a BLE host such as a PC, phone,
+  or tablet.
 
-Partial examples:
+Partial areas:
 
-- BLE GATT central scan is covered by `04_ble_scan`; the generic GATT server
-  path and HID-shaped services are covered by `08_ble_hid_gamepad`. Pairing
-  and long GATT operations still need focused examples.
-- Cart support is only partially covered by `05_cart_backup`; cart info,
-  database save configuration, hardware save probing, and save backup are
-  demonstrated, but restore, ROM dump, NOR probe, and NOR programming are not.
-- Stream send/pump and seek are not shown in a standalone example; current
-  stream examples focus on subscribing to a file and receiving slots.
-- Direct low-level `cl_storage_*` calls are not shown directly because the
-  intended public path is `cl_file_*`, but a storage-only diagnostic example
-  would be useful when debugging MCU file protocol issues.
+- Cart restore, ROM dump, NOR probe, and NOR programming are covered by the
+  manager, not by standalone examples yet.
 - WiFi configuration and AP scan APIs are exercised by the manager, not by a
-  small standalone SDK example.
+  small standalone SDK example yet.
 
 ## Memory Ownership Pattern
 
