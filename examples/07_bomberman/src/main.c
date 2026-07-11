@@ -536,8 +536,17 @@ int main(void) {
         cl_gba_text_draw(16, 66, "WAITING FOR PEER...", EX_COLOR_TEXT);
         ex_present();
         int retries = 0;
-        while (!net_wait_ready() && retries < 1800) {
-            cl_gba_wait_vblank(); retries++;
+        while (retries < 1800) {
+            int ready = net_wait_ready();
+            if (ready < 0) {
+                g_last_error = ready;
+                goto dead;
+            }
+            if (ready > 0) {
+                break;
+            }
+            cl_gba_wait_vblank();
+            retries++;
         }
         if (retries >= 1800) { g_last_error = -3; goto dead; }
     }

@@ -1644,7 +1644,8 @@ int cl_ble_link_start(cl_ble_t *ble, uint8_t role, const char *name) {
 
     /* JOIN role: scan for link service, connect, subscribe */
     /* Scan briefly for a device */
-    int ret = cl_ble_scan_start(ble, 3000u);
+    int ret = cl_ble_scan_start_ex(ble, 3000u, 0u, 0u,
+                                   CLP_BLE_SCAN_FLAG_ACTIVE);
     if (ret < 0) return ret;
     cl_ble_addr_t peer_addr;
     memset(&peer_addr, 0, sizeof(peer_addr));
@@ -1654,8 +1655,7 @@ int cl_ble_link_start(cl_ble_t *ble, uint8_t role, const char *name) {
         int eret = cl_ble_event_next(ble, &ev, sizeof(ev.data));
         if (eret < 0) break;
         if (ev.type == CLP_BLE_EVENT_SCAN_RESULT) {
-            if ((ev.flags & CLP_BLE_EVENT_FLAG_CONNECTABLE) &&
-                ble_adv_has_uuid128(&ev, CL_BLE_LINK_SERVICE_UUID128)) {
+            if (ble_adv_has_uuid128(&ev, CL_BLE_LINK_SERVICE_UUID128)) {
                 memcpy(peer_addr.bytes, ev.addr, 6);
                 peer_addr.type = ev.addr_type;
                 found = 1;
@@ -1672,14 +1672,21 @@ int cl_ble_link_start(cl_ble_t *ble, uint8_t role, const char *name) {
     ret = cl_ble_connect(ble, &peer_addr, &handle);
     if (ret < 0) return ret;
 
-    /* Discover Link RX/TX characteristics and subscribe to TX */
+    /* Discover Link service, then RX/TX characteristics within that service. */
     {
+        cl_ble_service_t svc_info;
         cl_ble_chr_t chr;
-        ret = cl_ble_gatt_find_chr128(ble, handle, 1u, 0xffffu,
+        ret = cl_ble_gatt_find_service128(ble, handle, 1u, 0xffffu,
+                                          CL_BLE_LINK_SERVICE_UUID128,
+                                          &svc_info);
+        if (ret < 0) { cl_ble_disconnect(ble, handle); return ret; }
+        ret = cl_ble_gatt_find_chr128(ble, handle, svc_info.start_handle,
+                                      svc_info.end_handle,
                                       CL_BLE_LINK_RX_UUID128, &chr);
         if (ret < 0) { cl_ble_disconnect(ble, handle); return ret; }
         ble->link_rx_attr = chr.value_handle;
-        ret = cl_ble_gatt_find_chr128(ble, handle, 1u, 0xffffu,
+        ret = cl_ble_gatt_find_chr128(ble, handle, svc_info.start_handle,
+                                      svc_info.end_handle,
                                       CL_BLE_LINK_TX_UUID128, &chr);
         if (ret < 0) { cl_ble_disconnect(ble, handle); return ret; }
         ret = cl_ble_gatt_subscribe(ble, handle, chr.value_handle,

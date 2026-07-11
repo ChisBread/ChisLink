@@ -22,6 +22,22 @@ Generated `.mb.gba`, legacy `.gba`, `.elf`, and `build/` outputs are ignored
 by git. Copy the built `.mb.gba` file to the SD card and run it from the
 ChisLink Manager file browser.
 
+## BLE Test Isolation
+
+BLE hosts such as macOS, Windows, phones, and tablets may automatically
+reconnect to a previously paired HID device. If one ChisLink is still connected
+as `ChisLink Pad`, it can interfere with BLE Link examples such as
+`07_bomberman` and cause discovery or GATT errors.
+
+Before switching between `08_ble_hid_gamepad` and BLE Link examples:
+
+- Disconnect or forget `ChisLink Pad` on the PC/phone, or temporarily disable
+  the host Bluetooth radio.
+- Restart the involved ChisLink MCU devices or reload the target `.mb.gba`
+  examples so the BLE profile starts from a clean state.
+- Keep only the two devices being tested powered and advertising when debugging
+  peer-to-peer BLE examples.
+
 ## Example Index
 
 | Project | Purpose | Main APIs |
