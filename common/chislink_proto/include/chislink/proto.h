@@ -64,6 +64,13 @@ extern "C" {
 #define CLP_STORAGE_LIST_RESPONSE_HEADER_BYTES 8u
 #define CLP_STORAGE_DIR_ENTRY_BYTES 12u
 #define CLP_STORAGE_DIR_ENTRY_MAX_NAME 255u
+/* Maximum wire path including the terminating NUL. Host-side translated paths
+ * may be larger because mount prefixes are rewritten by the MCU. */
+#define CLP_STORAGE_PATH_MAX_BYTES 1024u
+#define CLP_STORAGE_CRC32_REQUEST_FIXED_BYTES 28u
+#define CLP_STORAGE_CRC32_PATH_OFFSET CLP_STORAGE_CRC32_REQUEST_FIXED_BYTES
+#define CLP_STORAGE_CRC32_RESPONSE_FIXED_BYTES 12u
+#define CLP_STORAGE_CRC32_FIX_GBA_HEADER 0x00000001u
 
 #define CLP_STORAGE_OPEN_RESPONSE_WORDS 1u
 #define CLP_STORAGE_RW_RESPONSE_WORDS   1u
@@ -360,6 +367,7 @@ typedef enum clp_storage_opcode {
     CLP_STORAGE_MKDIR = 0x0b,
     CLP_STORAGE_RENAME = 0x0c,
     CLP_STORAGE_FSTAT = 0x0d,
+    CLP_STORAGE_CRC32 = 0x0e,
 } clp_storage_opcode_t;
 
 typedef enum clp_net_opcode {

@@ -117,6 +117,30 @@ int cl_storage_rename(cl_storage_client_t *storage,
                       const char *old_path,
                       const char *new_path);
 
+/** Ask the MCU to calculate segmented CRC32 values for a remote file.
+ *  The final CRC covers the exact short tail. */
+int cl_storage_crc32(cl_storage_client_t *storage,
+                     const char *path,
+                     uint64_t offset,
+                     uint64_t length,
+                     uint32_t chunk_size,
+                     uint32_t *out_crc32,
+                     uint32_t max_chunks,
+                     uint64_t *out_length,
+                     uint32_t *out_chunks);
+
+/** Extended remote CRC request. flags may request source-side transforms. */
+int cl_storage_crc32_ex(cl_storage_client_t *storage,
+                        const char *path,
+                        uint64_t offset,
+                        uint64_t length,
+                        uint32_t chunk_size,
+                        uint32_t flags,
+                        uint32_t *out_crc32,
+                        uint32_t max_chunks,
+                        uint64_t *out_length,
+                        uint32_t *out_chunks);
+
 /** Paginated directory listing — raw protocol access.
  *
  *  @param dst              Caller-owned buffer for response data.

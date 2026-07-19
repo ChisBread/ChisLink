@@ -150,6 +150,9 @@ int cl_copy_stream(const cl_copy_source_t *source, const cl_copy_sink_t *sink,
         }
     }
 
+    if (source->size != 0 && done != source->size) {
+        return -6;
+    }
     if (options->flush_on_finish && sink->flush) {
         return sink->flush(sink->ctx);
     }

@@ -182,12 +182,19 @@ static int storage_write_chunk(cl_storage_client_t *storage,
     return 0;
 }
 
-static uint32_t cstr_len(const char *s) {
-    uint32_t n = 0;
-    while (s && s[n]) {
-        ++n;
+static int storage_path_length(const char *path, uint32_t *out_length) {
+    if (!path || !out_length) {
+        return -1;
     }
-    return n;
+    uint32_t length = 0;
+    while (length < CLP_STORAGE_PATH_MAX_BYTES && path[length]) {
+        ++length;
+    }
+    if (length >= CLP_STORAGE_PATH_MAX_BYTES) {
+        return -2;
+    }
+    *out_length = length + 1u;
+    return 0;
 }
 
 static int send_command(cl_storage_client_t *storage, uint8_t opcode,
@@ -243,15 +250,26 @@ static uint8_t *storage_scratch(cl_storage_client_t *storage, size_t required) {
     return storage->scratch;
 }
 
+static uint8_t *storage_request_scratch(cl_storage_client_t *storage,
+                                        uint32_t required) {
+    if (required > CLP_FRAME_MAX_PAYLOAD_BYTES) {
+        return NULL;
+    }
+    return storage_scratch(storage, required);
+}
+
 int cl_storage_open(cl_storage_client_t *storage, const char *path,
                     uint32_t flags, uint16_t *out_handle) {
     if (!path || !out_handle) {
         return -1;
     }
-    uint32_t path_len = cstr_len(path) + 1u;
+    uint32_t path_len = 0;
+    if (storage_path_length(path, &path_len) < 0) {
+        return -2;
+    }
     uint32_t length = CLP_STORAGE_OPEN_PATH_OFFSET + path_len;
-    uint8_t *payload = storage_scratch(storage, 260u);
-    if (!payload || length > 260u) {
+    uint8_t *payload = storage_request_scratch(storage, length);
+    if (!payload) {
         return -2;
     }
     store_le32(payload, flags, 4u);
@@ -389,9 +407,12 @@ int cl_storage_stat(cl_storage_client_t *storage, const char *path,
     if (!path || !out_stat) {
         return -1;
     }
-    uint32_t length = cstr_len(path) + 1u;
-    uint8_t *payload = storage_scratch(storage, 256u);
-    if (!payload || length > 256u) {
+    uint32_t length = 0;
+    if (storage_path_length(path, &length) < 0) {
+        return -2;
+    }
+    uint8_t *payload = storage_request_scratch(storage, length);
+    if (!payload) {
         return -2;
     }
     memcpy(payload, path, length);
@@ -400,8 +421,13 @@ int cl_storage_stat(cl_storage_client_t *storage, const char *path,
     if (ret < 0) {
         return ret;
     }
-    if (response.imm != CLP_STATUS_OK ||
-        response.length != CLP_STORAGE_STAT_RESPONSE_WORDS * 4u) {
+    if (response.imm != CLP_STATUS_OK) {
+        storage->client->last_status = response.imm;
+        return response.imm == CLP_STATUS_NOT_FOUND ?
+               -(int)CLP_STATUS_NOT_FOUND : -3;
+    }
+    if (response.length != CLP_STORAGE_STAT_RESPONSE_WORDS * 4u) {
+        storage->client->last_status = CLP_STATUS_BAD_PACKET;
         return -3;
     }
 
@@ -416,6 +442,7 @@ int cl_storage_stat(cl_storage_client_t *storage, const char *path,
     out_stat->alignment = clp_file_meta_alignment(meta);
     out_stat->type = clp_file_meta_type(meta);
     out_stat->flags = clp_file_meta_flags(meta);
+    storage->client->last_status = CLP_STATUS_OK;
     return 0;
 }
 
@@ -463,11 +490,15 @@ int cl_storage_copy(cl_storage_client_t *storage,
         !(cl_client_caps(storage->client) & CLP_CAP_STREAM_COPY)) {
         return -4;
     }
-    uint32_t src_len = cstr_len(src_path) + 1u;
-    uint32_t dst_len = cstr_len(dst_path) + 1u;
+    uint32_t src_len = 0;
+    uint32_t dst_len = 0;
+    if (storage_path_length(src_path, &src_len) < 0 ||
+        storage_path_length(dst_path, &dst_len) < 0) {
+        return -2;
+    }
     uint32_t length = CLP_STORAGE_COPY_SRC_PATH_OFFSET + src_len + dst_len;
-    uint8_t *payload = storage_scratch(storage, 520u);
-    if (!payload || length > 520u) {
+    uint8_t *payload = storage_request_scratch(storage, length);
+    if (!payload) {
         return -2;
     }
     store_le32(payload, flags, 4u);
@@ -489,9 +520,12 @@ static int cl_storage_single_path_ack(cl_storage_client_t *storage,
     if (!storage || !path) {
         return -1;
     }
-    uint32_t length = cstr_len(path) + 1u;
-    uint8_t *payload = storage_scratch(storage, 256u);
-    if (!payload || length > 256u) {
+    uint32_t length = 0;
+    if (storage_path_length(path, &length) < 0) {
+        return -2;
+    }
+    uint8_t *payload = storage_request_scratch(storage, length);
+    if (!payload) {
         return -2;
     }
     memcpy(payload, path, length);
@@ -518,11 +552,15 @@ int cl_storage_rename(cl_storage_client_t *storage,
     if (!storage || !old_path || !new_path) {
         return -1;
     }
-    uint32_t old_len = cstr_len(old_path) + 1u;
-    uint32_t new_len = cstr_len(new_path) + 1u;
+    uint32_t old_len = 0;
+    uint32_t new_len = 0;
+    if (storage_path_length(old_path, &old_len) < 0 ||
+        storage_path_length(new_path, &new_len) < 0) {
+        return -2;
+    }
     uint32_t length = old_len + new_len;
-    uint8_t *payload = storage_scratch(storage, 520u);
-    if (!payload || length > 520u) {
+    uint8_t *payload = storage_request_scratch(storage, length);
+    if (!payload) {
         return -2;
     }
     memcpy(payload, old_path, old_len);
@@ -535,6 +573,94 @@ int cl_storage_rename(cl_storage_client_t *storage,
         return ret;
     }
     return response.imm == CLP_STATUS_OK ? 0 : -3;
+}
+
+int cl_storage_crc32_ex(cl_storage_client_t *storage,
+                        const char *path,
+                        uint64_t offset,
+                        uint64_t length,
+                        uint32_t chunk_size,
+                        uint32_t flags,
+                        uint32_t *out_crc32,
+                        uint32_t max_chunks,
+                        uint64_t *out_length,
+                        uint32_t *out_chunks) {
+    if (!storage || !path || !chunk_size || !out_crc32 || !max_chunks ||
+        !out_length || !out_chunks) {
+        return -1;
+    }
+    if (storage->client &&
+        !(cl_client_caps(storage->client) & CLP_CAP_CRC32)) {
+        return -4;
+    }
+    uint32_t path_len = 0;
+    if (storage_path_length(path, &path_len) < 0) {
+        return -2;
+    }
+    uint32_t request_length = CLP_STORAGE_CRC32_PATH_OFFSET + path_len;
+    uint8_t *payload = storage_request_scratch(storage, request_length);
+    if (!payload) {
+        return -2;
+    }
+    store_le32(payload, (uint32_t)offset, 4u);
+    store_le32(payload + 4u, (uint32_t)(offset >> 32u), 4u);
+    store_le32(payload + 8u, (uint32_t)length, 4u);
+    store_le32(payload + 12u, (uint32_t)(length >> 32u), 4u);
+    store_le32(payload + 16u, chunk_size, 4u);
+    store_le32(payload + 20u, max_chunks, 4u);
+    store_le32(payload + 24u, flags, 4u);
+    memcpy(payload + CLP_STORAGE_CRC32_PATH_OFFSET, path, path_len);
+
+    clp_header_t response;
+    int ret = send_command(storage, CLP_STORAGE_CRC32, payload,
+                           request_length, &response);
+    if (ret < 0) {
+        return ret;
+    }
+    if (response.imm != CLP_STATUS_OK ||
+        response.length < CLP_STORAGE_CRC32_RESPONSE_FIXED_BYTES ||
+        (response.length - CLP_STORAGE_CRC32_RESPONSE_FIXED_BYTES) % 4u) {
+        return -3;
+    }
+    uint32_t wire_chunks =
+        (response.length - CLP_STORAGE_CRC32_RESPONSE_FIXED_BYTES) / 4u;
+    if (wire_chunks > max_chunks) {
+        return -3;
+    }
+    uint8_t response_header[CLP_STORAGE_CRC32_RESPONSE_FIXED_BYTES];
+    read_payload_words(storage->client, response_header,
+                       sizeof(response_header));
+    uint32_t reported_chunks = load_le32(response_header + 8u, 4u);
+    if (reported_chunks != wire_chunks) {
+        return -3;
+    }
+    *out_length = (uint64_t)load_le32(response_header, 4u) |
+        ((uint64_t)load_le32(response_header + 4u, 4u) << 32u);
+    *out_chunks = wire_chunks;
+    if (wire_chunks) {
+        ret = read_payload_fast_or_words(storage->client,
+                                         (uint8_t *)out_crc32,
+                                         wire_chunks * 4u);
+        if (ret < 0) {
+            *out_chunks = 0;
+            return ret;
+        }
+    }
+    return 0;
+}
+
+int cl_storage_crc32(cl_storage_client_t *storage,
+                     const char *path,
+                     uint64_t offset,
+                     uint64_t length,
+                     uint32_t chunk_size,
+                     uint32_t *out_crc32,
+                     uint32_t max_chunks,
+                     uint64_t *out_length,
+                     uint32_t *out_chunks) {
+    return cl_storage_crc32_ex(storage, path, offset, length, chunk_size, 0u,
+                               out_crc32, max_chunks,
+                               out_length, out_chunks);
 }
 
 int cl_storage_list(cl_storage_client_t *storage,
@@ -556,10 +682,13 @@ int cl_storage_list(cl_storage_client_t *storage,
         return -4;
     }
 
-    uint32_t path_len = cstr_len(path) + 1u;
+    uint32_t path_len = 0;
+    if (storage_path_length(path, &path_len) < 0) {
+        return -2;
+    }
     uint32_t length = CLP_STORAGE_LIST_PATH_OFFSET + path_len;
-    uint8_t *payload = storage_scratch(storage, 272u);
-    if (!payload || length > 272u) {
+    uint8_t *payload = storage_request_scratch(storage, length);
+    if (!payload) {
         return -2;
     }
     store_le32(payload, start_index, 4u);
@@ -702,12 +831,15 @@ static int remote_list_page(void *ctx,
     if (!ctx || !path || !callback || !out_next_index || !out_entry_count) {
         return -1;
     }
-    uint8_t buffer[512];
+    uint8_t *buffer = storage_scratch((cl_storage_client_t *)ctx, 512u);
+    if (!buffer) {
+        return -1;
+    }
     uint32_t out_length = 0;
     uint32_t next_index = CLP_STORAGE_LIST_DONE;
     uint32_t entry_count = 0;
     int ret = cl_storage_list((cl_storage_client_t *)ctx, path, start_index,
-                              max_entries, buffer, sizeof(buffer),
+                              max_entries, buffer, 512u,
                               &out_length, &next_index, &entry_count);
     if (ret < 0) {
         return ret;

@@ -491,10 +491,10 @@ static void linear_save_read(const cl_cart_gba_ctx_t *ctx,
     }
 }
 
-static void linear_save_write(const cl_cart_gba_ctx_t *ctx,
-                              uint32_t offset,
-                              const uint8_t *src,
-                              uint32_t length) {
+static int linear_save_write(const cl_cart_gba_ctx_t *ctx,
+                             uint32_t offset,
+                             const uint8_t *src,
+                             uint32_t length) {
     uint32_t copied = 0;
     while (copied < length) {
         uint32_t absolute = offset + copied;
@@ -507,11 +507,21 @@ static void linear_save_write(const cl_cart_gba_ctx_t *ctx,
         }
         switch_sram_bank(ctx, bank);
         for (uint32_t i = 0; i < n; ++i) {
-            ctx->save8[bank_offset + i] = src[copied + i];
+            uint32_t address = bank_offset + i;
+            uint8_t value = src[copied + i];
+            save_write8(ctx, address, value);
+            if (save_read8(ctx, address) != value) {
+                save_write8(ctx, address, value);
+                if (save_read8(ctx, address) != value) {
+                    switch_sram_bank(ctx, 0);
+                    return -7;
+                }
+            }
         }
         copied += n;
     }
     switch_sram_bank(ctx, 0);
+    return 0;
 }
 
 static int linear_flash_write(cl_cart_gba_ctx_t *ctx,
@@ -892,7 +902,7 @@ static int probe_save_hardware_uncached(cl_cart_gba_ctx_t *ctx,
         } else {
             probe->save_type = CL_CART_SAVE_SRAM;
             probe->save_size = probe->has_bank_switch ?
-                CL_CART_GBA_MAX_LINEAR_SAVE_SIZE : 32768u;
+                CL_CART_GBA_MAX_LINEAR_SAVE_SIZE : CL_CART_GBA_SRAM_BANK_SIZE;
         }
         return 0;
     }
@@ -1144,7 +1154,11 @@ static int gba_write(void *ctx,
             return ret;
         }
     } else {
-        linear_save_write(gba, off, (const uint8_t *)src, n);
+        int ret = linear_save_write(gba, off, (const uint8_t *)src, n);
+        if (ret < 0) {
+            *out_length = 0;
+            return ret;
+        }
     }
     *out_length = n;
     return 0;
