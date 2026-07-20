@@ -124,16 +124,24 @@ LoadStateError LoadState(u8 *source, int maxLength)
 	LoadStateError status = _Success;
 	while (ptr < limit)
 	{
-		//Get Tag Name
-		u32 tagName = *((u32*)(ptr + 0));
-		u32 tagLength = *((u32*)(ptr + 4));
-		
-		ptr += 8;
-		u8 *nextPtr = ptr + (((tagLength - 1) | 3) + 1);
-		if (nextPtr > limit)
+		if ((u32)(limit - ptr) < 8u)
 		{
 			return _OutOfBoundsTag;
 		}
+		//Get Tag Name
+		u32 tagName = *((u32*)(ptr + 0));
+		u32 tagLength = *((u32*)(ptr + 4));
+		if (tagLength == 0u || tagLength > (u32)(limit - ptr - 8))
+		{
+			return _OutOfBoundsTag;
+		}
+		ptr += 8;
+		u32 paddedLength = (tagLength + 3u) & ~3u;
+		if (paddedLength < tagLength || paddedLength > (u32)(limit - ptr))
+		{
+			return _OutOfBoundsTag;
+		}
+		u8 *nextPtr = ptr + paddedLength;
 		
 		int tagId = GetTagId(tagName);
 		if (tagId == -1)

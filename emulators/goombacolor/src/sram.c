@@ -10,6 +10,194 @@ extern int LoadState(u8 *source, int maxLength);
 int loadstate2(int romNumber, stateheader *sh);
 int savestate2(void);
 
+#ifdef CHISLINK
+#define CHISLINK_GOOMBA_STATE_MAGIC 0x5347434cu
+#define CHISLINK_GOOMBA_STATE_VERSION 1u
+
+typedef struct chislink_goomba_state_header {
+	u32 magic;
+	u32 version;
+	u32 state_size;
+	u32 sram_size;
+	u32 frame_count;
+	u32 checksum;
+} chislink_goomba_state_header_t;
+
+static int chislink_state_read_exact(void *dst, u32 length) {
+	u8 *out = (u8 *)dst;
+	u32 done = 0;
+	while (done < length) {
+		u32 chunk = length - done;
+		if (chunk > 0x4000u) chunk = 0x4000u;
+		u32 got = 0;
+		if (chislink_bridge_state_read(out + done, chunk, &got) < 0 ||
+			got != chunk) return 0;
+		done += got;
+	}
+	return 1;
+}
+
+static u32 chislink_state_sram_size(void) {
+	switch (g_sramsize) {
+	case 0: return 0u;
+	case 1:
+	case 2: return 0x2000u;
+	case 3:
+	case 4: return 0x8000u;
+	case 5: return 512u;
+	default: return 0u;
+	}
+}
+
+static u32 chislink_state_game_id(void) {
+	const chislink_launch_info_t *launch = chislink_bridge_launch();
+	u32 hash = 2166136261u;
+	if (!launch) return 0u;
+	for (const char *p = launch->path; *p; ++p) {
+		hash = (hash ^ (u8)*p) * 16777619u;
+	}
+	hash = (hash ^ launch->size) * 16777619u;
+	return hash;
+}
+
+static void chislink_state_rebuild_cache(void) {
+	flushcache();
+	update_cache();
+}
+
+static int chislink_save_state_slot(u8 slot) {
+	chislink_io_pause_state_t pause = chislink_io_pause();
+	u32 capacity = (u32)((u8 *)&END_OF_EXRAM - ewram_start);
+	u32 checksum = chislink_state_game_id();
+	if (capacity < (u32)savestate_size_estimate) {
+		chislink_io_resume(pause);
+		return 0;
+	}
+	int state_size = SaveState(ewram_start);
+	u32 sram_size = chislink_state_sram_size();
+	if (state_size <= 0 || (u32)state_size > capacity) {
+		chislink_io_resume(pause);
+		chislink_state_rebuild_cache();
+		return 0;
+	}
+	chislink_goomba_state_header_t header = {
+		.magic = CHISLINK_GOOMBA_STATE_MAGIC,
+		.version = CHISLINK_GOOMBA_STATE_VERSION,
+		.state_size = (u32)state_size,
+		.sram_size = sram_size,
+		.frame_count = frametotal,
+		.checksum = checksum,
+	};
+	int ok = chislink_bridge_state_open(slot, 1, NULL) == 0 &&
+		chislink_bridge_state_write(&header, sizeof(header)) == 0 &&
+		chislink_bridge_state_write(ewram_start, (u32)state_size) == 0 &&
+		(sram_size == 0u ||
+		 chislink_bridge_state_write(XGB_SRAM, sram_size) == 0);
+	if (chislink_bridge_state_close() < 0) ok = 0;
+	chislink_io_resume(pause);
+	chislink_state_rebuild_cache();
+	return ok;
+}
+
+static int chislink_load_state_slot(u8 slot) {
+	chislink_io_pause_state_t pause = chislink_io_pause();
+	u32 file_size = 0;
+	if (chislink_bridge_state_open(slot, 0, &file_size) < 0) {
+		chislink_io_resume(pause);
+		return 0;
+	}
+	chislink_goomba_state_header_t header;
+	u32 capacity = (u32)((u8 *)&END_OF_EXRAM - ewram_start);
+	int ok = chislink_state_read_exact(&header, sizeof(header)) &&
+		header.magic == CHISLINK_GOOMBA_STATE_MAGIC &&
+		header.version == CHISLINK_GOOMBA_STATE_VERSION &&
+		header.state_size != 0u && header.state_size <= capacity &&
+		header.sram_size <= sizeof(XGB_SRAM) &&
+		(header.checksum == 0u || header.checksum == chislink_state_game_id()) &&
+		file_size == sizeof(header) + header.state_size + header.sram_size;
+	if (ok) ok = chislink_state_read_exact(ewram_start, header.state_size);
+	if (ok && header.sram_size != 0u) {
+		ok = chislink_state_read_exact(XGB_SRAM, header.sram_size);
+	}
+	if (chislink_bridge_state_close() < 0) ok = 0;
+	if (ok) {
+		ok = LoadState(ewram_start, header.state_size) == 0;
+		if (ok) {
+			frametotal = header.frame_count;
+		}
+	}
+	chislink_io_resume(pause);
+	chislink_state_rebuild_cache();
+	return ok;
+}
+
+static void chislink_remove_state_slot(u8 slot) {
+	chislink_io_pause_state_t pause = chislink_io_pause();
+	(void)chislink_bridge_state_remove(slot);
+	chislink_io_resume(pause);
+}
+
+static const char *const chislink_state_slots[CHISLINK_STATE_SLOT_COUNT] = {
+	"State 1", "State 2", "State 3", "State 4", "State 5",
+	"State 6", "State 7", "State 8", "State 9", "State 10",
+};
+
+static void chislink_draw_state_slots(const char *title) {
+	cls(2);
+	drawtext(32, title, 0);
+	for (u32 i = 0; i < CHISLINK_STATE_SLOT_COUNT; ++i) {
+		drawtext(32 + 2 + i, chislink_state_slots[i], selected == (int)i);
+	}
+	drawtext(32 + 18, "A=OK SELECT=Delete", 0);
+}
+
+static void chislink_state_result(const char *message) {
+	cls(2);
+	drawtext(32 + 9, message, 0);
+	for (int i = 0; i < 45; ++i) waitframe();
+}
+
+static void chislink_state_menu(int save) {
+	selected = 0;
+	chislink_draw_state_slots(save ? "Save state:" : "Load state:");
+	scrolll(0);
+	u32 key;
+	do {
+		key = getmenuinput(CHISLINK_STATE_SLOT_COUNT);
+		if (key & A_BTN) {
+			int ok = save ? chislink_save_state_slot((u8)selected + 1u) :
+			                chislink_load_state_slot((u8)selected + 1u);
+			chislink_state_result(ok ?
+				(save ? "          State saved." : "          State loaded.") :
+				(save ? "        Save state failed." :
+				        "        Load state failed."));
+			chislink_draw_state_slots(save ? "Save state:" : "Load state:");
+		} else if (key & SELECT) {
+			chislink_remove_state_slot((u8)selected + 1u);
+			chislink_draw_state_slots(save ? "Save state:" : "Load state:");
+		}
+	} while (!(key & (L_BTN + R_BTN + B_BTN)) && (save || !(key & A_BTN)));
+	drawui1();
+	scrollr(0);
+}
+
+void savestatemenu(void) {
+	chislink_state_menu(1);
+}
+
+void loadstatemenu(void) {
+	chislink_state_menu(0);
+}
+
+void quicksave(void) {
+	(void)chislink_save_state_slot(1u);
+}
+
+void quickload(void) {
+	(void)chislink_load_state_slot(1u);
+}
+#endif
+
 #if !CARTSRAM
 #if !MOVIEPLAYER || defined(CHISLINK)
 #ifdef CHISLINK

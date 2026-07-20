@@ -36,16 +36,10 @@ EWRAM_BSS static u16 s_prg67_page;
 EWRAM_BSS static u8 s_chr_slots;
 EWRAM_BSS static u8 s_runtime_ready;
 
-typedef struct cache_pause_state {
-    u16 ime;
-    u16 ie;
-    u8 active;
-} cache_pause_state_t;
-
 static u8 *chr_ram_page(u32 page);
 
-static cache_pause_state_t pause_for_miss(void) {
-    cache_pause_state_t state = {0};
+chislink_pocketnes_io_pause_state_t chislink_pocketnes_io_pause(void) {
+    chislink_pocketnes_io_pause_state_t state = {0};
     if (!s_runtime_ready) return state;
 
     state.ime = REG_IME;
@@ -59,7 +53,7 @@ static cache_pause_state_t pause_for_miss(void) {
     return state;
 }
 
-static void resume_after_miss(cache_pause_state_t state) {
+void chislink_pocketnes_io_resume(chislink_pocketnes_io_pause_state_t state) {
     if (!state.active) return;
 
     REG_IME = 0;
@@ -108,13 +102,14 @@ u8 *chislink_pocketnes_prg67(u32 page) {
     if (!s_prg67_cache || pages == 0) return s_prg67_cache;
     page %= pages;
     if (s_prg67_page != page) {
-        cache_pause_state_t pause = pause_for_miss();
+        chislink_pocketnes_io_pause_state_t pause =
+            chislink_pocketnes_io_pause();
         memset(s_prg67_cache, 0xff, PRG_PAGE_BYTES);
-        (void)chislink_bridge_read(s_header.prg_offset +
-                                  page * PRG_PAGE_BYTES,
-                                  s_prg67_cache, PRG_PAGE_BYTES);
+        (void)chislink_bridge_read_stream(s_header.prg_offset +
+                                         page * PRG_PAGE_BYTES,
+                                         s_prg67_cache, PRG_PAGE_BYTES);
         s_prg67_page = (u16)page;
-        resume_after_miss(pause);
+        chislink_pocketnes_io_resume(pause);
     }
     return s_prg67_cache;
 }
@@ -143,7 +138,7 @@ static int read_group(u32 file_offset, u32 file_bytes, u8 *dst,
     if (take > group_bytes) {
         take = group_bytes;
     }
-    return chislink_bridge_read(file_offset + offset, dst, take);
+    return chislink_bridge_read_stream(file_offset + offset, dst, take);
 }
 
 static void map_prg_group(u32 slot, u32 group) {
@@ -243,11 +238,12 @@ u8 *chislink_pocketnes_ensure_prg(u32 page) {
         }
     }
     u32 slot = choose_prg_slot();
-    cache_pause_state_t pause = pause_for_miss();
+    chislink_pocketnes_io_pause_state_t pause =
+        chislink_pocketnes_io_pause();
     unmap_prg_group(slot);
     if (read_group(s_header.prg_offset, s_header.prg_size,
                    s_prg_cache[slot], PRG_GROUP_BYTES, group) < 0) {
-        resume_after_miss(pause);
+        chislink_pocketnes_io_resume(pause);
         return NULL;
     }
     s_prg_group[slot] = (u16)group;
@@ -258,7 +254,7 @@ u8 *chislink_pocketnes_ensure_prg(u32 page) {
     }
     u8 *result =
         &s_prg_cache[slot][(page % PRG_GROUP_PAGES) * PRG_PAGE_BYTES];
-    resume_after_miss(pause);
+    chislink_pocketnes_io_resume(pause);
     return result;
 }
 
@@ -281,24 +277,45 @@ void chislink_pocketnes_ensure_chr(u32 page) {
         }
     }
     u32 slot = choose_chr_slot();
-    cache_pause_state_t pause = pause_for_miss();
+    chislink_pocketnes_io_pause_state_t pause =
+        chislink_pocketnes_io_pause();
     unmap_chr_page(slot);
     if (read_group(s_header.chr_offset, s_header.chr_size,
                    s_chr_cache[slot], CHR_PAGE_BYTES, page) < 0) {
-        resume_after_miss(pause);
+        chislink_pocketnes_io_resume(pause);
         return;
     }
     s_chr_page[slot] = (u16)page;
     s_chr_age[slot] = ++s_clock;
     map_chr_aliases(page, s_chr_cache[slot]);
     instant_chr_banks[requested] = s_chr_cache[slot];
-    resume_after_miss(pause);
+    chislink_pocketnes_io_resume(pause);
 }
 
 void chislink_pocketnes_ensure_chr_range(u32 page, u32 count) {
     while (count--) {
         chislink_pocketnes_ensure_chr(page++);
     }
+}
+
+int chislink_pocketnes_restore_cache_map(void) {
+    /* bank6 is restored separately through the dedicated $6000-$7fff page.
+     * Loading it into the four-group cache could evict one of the four CPU
+     * banks before rebankswitch consumes their pointers. */
+    for (u32 i = 1u; i < 5u; ++i) {
+        if (bank6[i] < 255u &&
+            chislink_pocketnes_ensure_prg(bank6[i]) == NULL) {
+            return -1;
+        }
+    }
+    for (u32 i = 0; i < 8u; ++i) {
+        chislink_pocketnes_ensure_chr(Cbank0[i]);
+        if (instant_chr_banks[Cbank0[i]] == NULL) return -2;
+    }
+
+    rebankswitch();
+    if (bank6[0] < 255u) map67_(bank6[0]);
+    return 0;
 }
 
 int chislink_pocketnes_boot(void) {

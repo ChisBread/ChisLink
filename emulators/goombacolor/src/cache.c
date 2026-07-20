@@ -84,6 +84,7 @@ chislink_io_pause_state_t chislink_io_pause(void)
 	REG_DM0CNT_H = 0;
 	REG_DM1CNT_H = 0;
 	REG_DM2CNT_H = 0;
+	REG_DM3CNT_H = 0;
 	REG_IF = 0xffffu;
 	REG_IE = SERIAL_IRQ_MASK;
 	REG_IME = 1;
@@ -101,6 +102,7 @@ void chislink_io_resume(chislink_io_pause_state_t state)
 	REG_DM0CNT_H = 0;
 	REG_DM1CNT_H = 0;
 	REG_DM2CNT_H = 0;
+	REG_DM3CNT_H = 0;
 	vcountfptr = &vbldummy;
 	REG_DISPSTAT = 0x0008u;
 	REG_IF = 0xffffu;
@@ -221,7 +223,7 @@ void loadcachepage(int i,int bank) //i=slot, bank=bank that goes into the slot
 		{
 			take = launch->size - offset;
 			if (take > page_size_2) take = page_size_2;
-			(void)chislink_bridge_read_words(offset, dest, take);
+			(void)chislink_bridge_read_stream_words(offset, dest, take);
 		}
 		#else
 		FAT_fseek(rom_file, bank*page_size_2,SEEK_SET);

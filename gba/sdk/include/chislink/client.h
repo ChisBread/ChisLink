@@ -62,10 +62,15 @@ typedef void (*cl_payload_store_word_t)(void *ctx,
                                         uint32_t word,
                                         uint32_t valid_bytes);
 
-typedef struct cl_payload_writer {
+#ifndef CL_PAYLOAD_WRITER_T_DEFINED
+#define CL_PAYLOAD_WRITER_T_DEFINED
+typedef struct cl_payload_writer cl_payload_writer_t;
+#endif
+
+struct cl_payload_writer {
     cl_payload_store_word_t store_word;
     void *ctx;
-} cl_payload_writer_t;
+};
 
 /** Optional fixed-length MCU->GBA payload fast path using a caller-provided
  *  word writer instead of a byte-addressable destination. */

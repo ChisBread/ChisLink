@@ -35,7 +35,7 @@
 #include "chislink_cache.h"
 #endif
 
-#if MOVIEPLAYER
+#if MOVIEPLAYER || defined(CHISLINK)
 	#include "savestate.h"
 #endif
 

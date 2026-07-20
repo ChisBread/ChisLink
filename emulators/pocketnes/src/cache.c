@@ -107,7 +107,7 @@ void make_contiguous(u8* cachebase, int page1, int page2) //16k page size
 #endif
 
 
-#if SAVE
+#if SAVE || defined(CHISLINK)
 void get_rom_map()
 {
 	//FIXME: bank numbers in savestates are still for 8k banks, they are converted to 4k as they are loaded...

@@ -86,6 +86,24 @@ RECENT_TILENUM_SIZE = 128
 
 	.if MOVIEPLAYER
  FAT_MEM_END = MEM_END
+#ifdef CHISLINK
+ @ ChisLink uses the MCU storage client, so the legacy GBAMP FAT buffers and
+ @ file table are never accessed. Keep the exported symbols for compatibility
+ @ but reserve only the scalar flags that remain part of the old memory map.
+ fatBuffer = FAT_MEM_END
+ fatWriteBuffer = FAT_MEM_END
+ globalBuffer = FAT_MEM_END
+ lfnName = FAT_MEM_END
+ SramName = FAT_MEM_END
+ openFiles = FAT_MEM_END
+ stateexist = FAT_MEM_END-4
+ System = stateexist-4
+ PALMode = System-4
+ rom_file = PALMode-4
+ nocash = rom_file-4
+ rom_filesize = nocash-4
+ FAT_MEM_START = rom_filesize
+#else
  FAT_MEM_START = FAT_MEM_END-4096
  fatBuffer	= FAT_MEM_END-512
  fatWriteBuffer = fatBuffer
@@ -99,6 +117,7 @@ RECENT_TILENUM_SIZE = 128
  rom_file = PALMode-4
  nocash	= rom_file-4
  rom_filesize = nocash-4
+#endif
 
  Next = FAT_MEM_START
 	.endif

@@ -8,6 +8,7 @@
 #include "chislink/gba_sio_transport.h"
 #include "chislink/ram_map.h"
 #include "chislink/storage_client.h"
+#include "chislink/stream.h"
 
 #define REG_DISPCNT (*(volatile uint16_t *)0x04000000u)
 #define BG_PALETTE0 (*(volatile uint16_t *)0x05000000u)
@@ -23,6 +24,13 @@ static BRIDGE_EWRAM uint8_t s_storage_scratch[CLP_LAUNCH_VALUE_MAX_BYTES];
 static BRIDGE_EWRAM uint64_t s_rom_position;
 static BRIDGE_EWRAM uint16_t s_rom_handle;
 static BRIDGE_EWRAM uint8_t s_open;
+static BRIDGE_EWRAM cl_stream_t s_rom_stream;
+static BRIDGE_EWRAM cl_stream_slot_t s_rom_stream_slot;
+static BRIDGE_EWRAM uint16_t s_rom_stream_max;
+static BRIDGE_EWRAM uint16_t s_state_handle;
+static BRIDGE_EWRAM uint32_t s_state_position;
+static BRIDGE_EWRAM uint8_t s_state_write;
+static BRIDGE_EWRAM char s_state_path[320];
 #ifdef CHISLINK_GOOMBACOLOR
 static BRIDGE_EWRAM char s_save_path[72];
 static BRIDGE_EWRAM uint16_t s_save_handle;
@@ -84,6 +92,12 @@ int chislink_bridge_open(uint32_t expected_type) {
     s_rom_handle = 0;
     s_rom_position = 0;
     s_open = 0;
+    memset(&s_rom_stream, 0, sizeof(s_rom_stream));
+    memset(&s_rom_stream_slot, 0, sizeof(s_rom_stream_slot));
+    s_rom_stream_max = 0;
+    s_state_handle = 0;
+    s_state_position = 0;
+    s_state_write = 0;
 
     uint32_t idle_word = clp_make_word(
         CLP_TYPE_NOP, CLP_CH_CONTROL, CLP_CTRL_NOP, 0);
@@ -222,11 +236,236 @@ int chislink_bridge_read(uint32_t offset, void *dst, uint32_t length) {
     return bridge_read(offset, dst, length, 0);
 }
 
+static int bridge_stream_open(void *dst, uint32_t length) {
+    if (!s_open || !dst || length == 0u || length > UINT16_MAX) return -1;
+    cl_stream_config_t config = {
+        .buffer = (uint8_t *)dst,
+        .buffer_size = length,
+        .slots = &s_rom_stream_slot,
+        .slot_count = 1u,
+        .slot_size = (uint16_t)length,
+        .flags = CLP_STREAM_FLAG_RX,
+        .profile = CL_STREAM_PROFILE_HIGH_THROUGHPUT,
+    };
+    if (!cl_stream_init(&s_rom_stream, &config)) return -2;
+    int ret = cl_stream_subscribe_file(&s_client, &s_rom_stream,
+                                       s_launch.path);
+    if (ret < 0) return ret;
+    s_rom_stream_max = (uint16_t)length;
+    return 0;
+}
+
+static int bridge_stream_prepare(uint32_t offset, void *dst,
+                                 uint32_t length) {
+    if (!s_rom_stream.stream_id) {
+        int ret = bridge_stream_open(dst, length);
+        if (ret < 0) return ret;
+    }
+    if (!dst || length == 0u || length > s_rom_stream_max ||
+        offset > s_launch.size || length > s_launch.size - offset) return -1;
+    if (s_rom_stream.rx_offset != offset) {
+        int ret = cl_stream_seek(&s_client, &s_rom_stream, offset);
+        if (ret < 0) return ret;
+    }
+    return 0;
+}
+
+int chislink_bridge_read_stream(uint32_t offset, void *dst, uint32_t length) {
+    int ret = bridge_stream_prepare(offset, dst, length);
+    if (ret < 0) return ret;
+    uint32_t got = 0;
+    ret = cl_stream_recv_into(&s_client, &s_rom_stream, dst, length, &got);
+    return ret < 0 ? ret : got == length ? 0 : -3;
+}
+
 #ifdef CHISLINK_GOOMBACOLOR
 int chislink_bridge_read_words(uint32_t offset, void *dst, uint32_t length) {
     return bridge_read(offset, dst, length, 1);
 }
+
+int chislink_bridge_read_stream_words(uint32_t offset, void *dst,
+                                      uint32_t length) {
+    int ret = bridge_stream_prepare(offset, dst, length);
+    if (ret < 0) return ret;
+    cl_payload_writer_t writer = {
+        .store_word = bridge_store_payload_word,
+        .ctx = dst,
+    };
+    uint32_t got = 0;
+    ret = cl_stream_recv_with_writer(&s_client, &s_rom_stream, &writer,
+                                     length, &got);
+    return ret < 0 ? ret : got == length ? 0 : -3;
+}
 #endif
+
+static int bridge_path_append(const char *text, size_t *at) {
+    while (text && *text) {
+        if (*at + 1u >= sizeof(s_state_path)) return -1;
+        s_state_path[(*at)++] = *text++;
+    }
+    s_state_path[*at] = '\0';
+    return 0;
+}
+
+static size_t bridge_utf8_width(const char *text, const char *end) {
+    uint8_t lead = (uint8_t)*text;
+    size_t width = lead < 0x80u ? 1u :
+                   (lead & 0xe0u) == 0xc0u ? 2u :
+                   (lead & 0xf0u) == 0xe0u ? 3u :
+                   (lead & 0xf8u) == 0xf0u ? 4u : 0u;
+    if (width == 0u || (size_t)(end - text) < width) return 0u;
+    for (size_t i = 1u; i < width; ++i) {
+        if (((uint8_t)text[i] & 0xc0u) != 0x80u) return 0u;
+    }
+    return width;
+}
+
+static int bridge_state_build_path(uint8_t slot, int make_dirs) {
+    if (!s_open || slot == 0u || slot > CHISLINK_STATE_SLOT_COUNT) return -1;
+#ifdef CHISLINK_GOOMBACOLOR
+    static const char emulator[] = "goombacolor";
+#else
+    static const char emulator[] = "pocketnes";
+#endif
+    size_t at = 0;
+    s_state_path[0] = '\0';
+    if (bridge_path_append("/sd/.chislink", &at) < 0) return -2;
+    if (make_dirs) (void)cl_storage_mkdir(&s_storage, s_state_path);
+    if (bridge_path_append("/", &at) < 0 ||
+        bridge_path_append(emulator, &at) < 0) return -2;
+    if (make_dirs) (void)cl_storage_mkdir(&s_storage, s_state_path);
+    if (bridge_path_append("/savestate", &at) < 0) return -2;
+    if (make_dirs) (void)cl_storage_mkdir(&s_storage, s_state_path);
+    if (bridge_path_append("/", &at) < 0) return -2;
+
+    const char *name = s_launch.path;
+    for (const char *p = s_launch.path; *p; ++p) {
+        if (*p == '/') name = p + 1;
+    }
+    const char *end = name;
+    const char *dot = NULL;
+    while (*end) {
+        if (*end == '.') dot = end;
+        ++end;
+    }
+    if (dot && dot != name) end = dot;
+    size_t component_start = at;
+    while (name < end) {
+        uint8_t ch = (uint8_t)*name;
+        if (ch < 0x20u || ch == '<' || ch == '>' || ch == ':' ||
+            ch == '"' || ch == '/' || ch == '\\' || ch == '|' ||
+            ch == '?' || ch == '*') {
+            if (at - component_start + 1u > 200u ||
+                at + 1u >= sizeof(s_state_path)) break;
+            s_state_path[at++] = '_';
+            ++name;
+            continue;
+        }
+        size_t width = bridge_utf8_width(name, end);
+        if (width == 0u) {
+            width = 1u;
+            ch = '_';
+        }
+        if (at - component_start + width > 200u ||
+            at + width >= sizeof(s_state_path)) break;
+        if (ch == '_') {
+            s_state_path[at++] = '_';
+        } else {
+            memcpy(s_state_path + at, name, width);
+            at += width;
+        }
+        name += width;
+    }
+    while (at > component_start &&
+           (s_state_path[at - 1u] == ' ' || s_state_path[at - 1u] == '.')) {
+        --at;
+    }
+    if (at == component_start && bridge_path_append("game", &at) < 0) {
+        return -2;
+    }
+    s_state_path[at] = '\0';
+    if (make_dirs) (void)cl_storage_mkdir(&s_storage, s_state_path);
+    if (bridge_path_append("/state-", &at) < 0) return -2;
+    if (slot == 10u) s_state_path[at++] = '1';
+    s_state_path[at++] = slot == 10u ? '0' : (char)('0' + slot);
+    s_state_path[at] = '\0';
+    return bridge_path_append(".sav", &at);
+}
+
+int chislink_bridge_state_open(uint8_t slot, int write,
+                               uint32_t *out_size) {
+    if (s_state_handle) (void)chislink_bridge_state_close();
+    int ret = bridge_state_build_path(slot, write != 0);
+    if (ret < 0) return ret;
+    if (out_size) {
+        cl_file_stat_t stat;
+        ret = cl_storage_stat(&s_storage, s_state_path, &stat);
+        if (ret < 0 && !write) return ret;
+        *out_size = ret < 0 || stat.size > UINT32_MAX ? 0u : (uint32_t)stat.size;
+    }
+    uint32_t flags = write ?
+        CLP_OPEN_WRITE | CLP_OPEN_CREATE | CLP_OPEN_TRUNCATE : CLP_OPEN_READ;
+    ret = cl_storage_open(&s_storage, s_state_path, flags, &s_state_handle);
+    if (ret < 0) return ret;
+    s_state_position = 0;
+    s_state_write = write != 0;
+    return 0;
+}
+
+int chislink_bridge_state_read(void *dst, uint32_t length,
+                               uint32_t *out_length) {
+    if (!s_state_handle || s_state_write || !dst || !out_length) return -1;
+    int ret = cl_storage_read(&s_storage, s_state_handle, dst, length,
+                              out_length);
+    if (ret == 0) s_state_position += *out_length;
+    return ret;
+}
+
+int chislink_bridge_state_write(const void *src, uint32_t length) {
+    if (!s_state_handle || !s_state_write || (!src && length)) return -1;
+    uint32_t written = 0;
+    int ret = cl_storage_write(&s_storage, s_state_handle, src, length,
+                               &written);
+    if (ret == 0) s_state_position += written;
+    return ret < 0 ? ret : written == length ? 0 : -2;
+}
+
+int chislink_bridge_state_seek(int32_t relative_offset) {
+    if (!s_state_handle) return -1;
+    int64_t target = (int64_t)s_state_position + relative_offset;
+    if (target < 0 || target > UINT32_MAX) return -2;
+    int ret = cl_storage_seek(&s_storage, s_state_handle, (uint32_t)target);
+    if (ret == 0) s_state_position = (uint32_t)target;
+    return ret;
+}
+
+int chislink_bridge_state_close(void) {
+    if (!s_state_handle) return 0;
+    int ret = 0;
+    if (s_state_write) ret = cl_storage_flush(&s_storage, s_state_handle);
+    int close_ret = cl_storage_close(&s_storage, s_state_handle);
+    s_state_handle = 0;
+    s_state_position = 0;
+    s_state_write = 0;
+    return ret < 0 ? ret : close_ret;
+}
+
+int chislink_bridge_state_stat(uint8_t slot, uint32_t *out_size) {
+    if (!out_size || bridge_state_build_path(slot, 0) < 0) return -1;
+    cl_file_stat_t stat;
+    int ret = cl_storage_stat(&s_storage, s_state_path, &stat);
+    if (ret < 0 || stat.type != CLP_FILE_REGULAR || stat.size > UINT32_MAX) {
+        *out_size = 0;
+        return ret < 0 ? ret : -2;
+    }
+    *out_size = (uint32_t)stat.size;
+    return 0;
+}
+
+int chislink_bridge_state_remove(uint8_t slot) {
+    if (bridge_state_build_path(slot, 0) < 0) return -1;
+    return cl_storage_remove(&s_storage, s_state_path);
+}
 
 #ifdef CHISLINK_GOOMBACOLOR
 static uint32_t bridge_path_hash(const char *path) {
@@ -292,6 +531,11 @@ int chislink_bridge_save_write(uint32_t offset, const void *src,
 #endif
 
 void chislink_bridge_close(void) {
+    (void)chislink_bridge_state_close();
+    if (s_rom_stream.stream_id) {
+        (void)cl_stream_close(&s_client, &s_rom_stream);
+    }
+    s_rom_stream_max = 0;
 #ifdef CHISLINK_GOOMBACOLOR
     if (s_save_handle) {
         (void)cl_storage_close(&s_storage, s_save_handle);

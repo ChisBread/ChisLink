@@ -70,6 +70,11 @@ extern "C" {
 typedef struct cl_client cl_client_t;
 #endif
 
+#ifndef CL_PAYLOAD_WRITER_T_DEFINED
+#define CL_PAYLOAD_WRITER_T_DEFINED
+typedef struct cl_payload_writer cl_payload_writer_t;
+#endif
+
 /** Alignment attribute for stream buffers (matches protocol alignment). */
 #define CL_STREAM_ALIGN __attribute__((aligned(CLP_DEFAULT_ALIGNMENT)))
 
@@ -256,6 +261,25 @@ int cl_stream_seek(cl_client_t *client, cl_stream_t *stream, uint64_t offset);
  *  payload directly into the slot buffer, then commits.
  *  @return Bytes received (>0), 0 (no data available), or negative on error. */
 int cl_stream_recv_slot(cl_client_t *client, cl_stream_t *stream);
+
+/** Receive directly into a caller-owned destination without using the ring.
+ *  The requested length must not exceed the slot size negotiated at open.
+ *  This is useful when the destination is already an application cache slot.
+ *  @param out_length  Set to bytes received.
+ *  @return 0 on success, negative on error. */
+int cl_stream_recv_into(cl_client_t *client,
+                        cl_stream_t *stream,
+                        void *dst,
+                        uint32_t length,
+                        uint32_t *out_length);
+
+/** Direct receive variant for destinations that require word-width stores,
+ *  such as GBA VRAM. */
+int cl_stream_recv_with_writer(cl_client_t *client,
+                               cl_stream_t *stream,
+                               const cl_payload_writer_t *writer,
+                               uint32_t length,
+                               uint32_t *out_length);
 
 /* --- Consumer side (buffer → application) --- */
 

@@ -126,7 +126,11 @@
 #endif
 
 #define CARTSAVE SAVE
+#ifdef CHISLINK
+#define SAVESTATES 1
+#else
 #define SAVESTATES (SAVE | MOVIEPLAYER)
+#endif
 
 #ifndef GCC
 #define GCC 0

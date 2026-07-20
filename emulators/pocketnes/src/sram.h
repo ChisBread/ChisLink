@@ -7,6 +7,18 @@ extern "C" {
 
 #include "cheat.h"
 
+#if SAVE || defined(CHISLINK)
+
+void loadstatemenu(void);
+void savestatemenu(void);
+#ifdef CHISLINK
+bool can_quickload(void);
+bool quickload(void);
+bool quicksave(void);
+#endif
+
+#endif
+
 #if SAVE
 
 extern u32 sram_owner;
@@ -14,12 +26,10 @@ extern u32 my_checksum;
 
 bool can_quickload(void);
 
-void loadstatemenu(void);
 void writeconfig(void);
 void readconfig(void);
 //void bytecopy(u8 *dst,const u8 *src,int count);
 void managesram(void);
-void savestatemenu(void);
 bool quickload(void);
 bool quicksave(void);
 int backup_nes_sram(int prompt_delete_menu);

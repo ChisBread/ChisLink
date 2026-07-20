@@ -1,11 +1,65 @@
 #include "includes.h"
 
-#if SAVE || MOVIEPLAYER
+#if SAVE || MOVIEPLAYER || defined(CHISLINK)
 
 #include "gba.h"
 #include <string.h>
 
-#if !MOVIEPLAYER
+#if defined(CHISLINK)
+typedef int save_ptr;
+typedef int load_ptr;
+static int chislink_state_io_error;
+static uint32_t chislink_state_remaining;
+
+static int chislink_state_read_data(void *dst, int size) {
+	uint32_t got = 0;
+	if (size < 0 || (uint32_t)size > chislink_state_remaining) {
+		chislink_state_io_error = 1;
+		return 0;
+	}
+	if (chislink_bridge_state_read(dst, (uint32_t)size, &got) < 0 ||
+		got != (uint32_t)size) {
+		chislink_state_io_error = 1;
+		return 0;
+	}
+	chislink_state_remaining -= got;
+	return size;
+}
+
+static int chislink_state_write_data(const void *src, int size) {
+	if (size < 0 || chislink_bridge_state_write(src, (uint32_t)size) < 0) {
+		chislink_state_io_error = 1;
+		return 0;
+	}
+	return size;
+}
+
+static int chislink_state_seek_data(int size) {
+	if (size < 0) {
+		chislink_state_io_error = 1;
+		return 0;
+	}
+	if ((uint32_t)size > chislink_state_remaining) {
+		chislink_state_io_error = 1;
+		return 0;
+	}
+	if (chislink_bridge_state_seek(size) < 0) {
+		chislink_state_io_error = 1;
+		return 0;
+	}
+	chislink_state_remaining -= (uint32_t)size;
+	return 1;
+}
+
+#define read_u32(src,var) ((void)(src), chislink_state_read_data(&(var), 4))
+#define read_mem_block(dest,src,size) \
+	((void)(src), chislink_state_read_data((dest), (size)))
+#define seek_ahead(src,size) ((void)(src), chislink_state_seek_data((size)))
+#define write_u32(dest,var) \
+	((void)(dest), chislink_state_write_data(&(var), 4))
+#define write_mem_block(dest,src,size) \
+	((void)(dest), chislink_state_write_data((src), (size)))
+#elif !MOVIEPLAYER
 typedef u8 *save_ptr;
 typedef const u8 *load_ptr;
 #define read_u32(src,var) ((src<limit)?((var)=*((u32*)(src)),(src)+=4,4):(0))
@@ -66,7 +120,10 @@ static int tag_search(u32 lookfor, const u32 array[], int arrsize);
 static int loadblock(load_ptr *src, u32 tag, int size);
 static void load_old_savestate(load_ptr *src);
 
-#if !MOVIEPLAYER
+#if defined(CHISLINK)
+bool chislink_loadstate(uint32_t file_size);
+bool chislink_savestate(void);
+#elif !MOVIEPLAYER
 void loadstate(int romnumber, u8* src, int statesize);
 int savestate(u8 *dest);
 #else
@@ -334,7 +391,9 @@ savelst	DCD rominfo,8,NES_RAM,0x2800,NES_VRAM,0x3000,agb_pal,96
 	DCD vram_map,64,agb_nt_map,16,mapperstate,48,rommap,16,cpustate,44,ppustate,32
 */
 
-#if !MOVIEPLAYER
+#if defined(CHISLINK)
+bool chislink_loadstate(uint32_t file_size)
+#elif !MOVIEPLAYER
 void loadstate(int romnumber, u8* src, int statesize)
 #else
 bool loadstate(const char* filename)
@@ -345,7 +404,11 @@ bool loadstate(const char* filename)
 	int old_crash_disabled = _crash_disabled;
 	int soundvol;
 
-	#if !MOVIEPLAYER
+	#if defined(CHISLINK)
+	load_ptr file=0;
+	chislink_state_io_error=0;
+	chislink_state_remaining=file_size;
+	#elif !MOVIEPLAYER
 	u8* limit=src+statesize;
 	load_ptr file=src;
 	#else
@@ -380,6 +443,12 @@ bool loadstate(const char* filename)
 		do
 		{
 			int tagid;
+			#if defined(CHISLINK)
+			if (chislink_state_remaining == 0u) {
+				do_load=false;
+				break;
+			}
+			#endif
 			//verify presence of VERS tag as first thing in file
 			if (!read_u32(file,tag)) break;
 			//look up tag
@@ -422,6 +491,9 @@ bool loadstate(const char* filename)
 				//load all other tags
 				while (1)
 				{
+					#if defined(CHISLINK)
+					if (chislink_state_remaining == 0u) break;
+					#endif
 					if (!read_u32(file,tag)) break;
 					if (!read_u32(file,size)) break;
 					loadblock(&file,tag,size);
@@ -438,12 +510,17 @@ bool loadstate(const char* filename)
 	//restore previous state of crash detector
 	_crash_disabled = old_crash_disabled;
 
-	#if MOVIEPLAYER
+	#if defined(CHISLINK)
+	return do_load && !chislink_state_io_error &&
+		chislink_state_remaining == 0u;
+	#elif MOVIEPLAYER
 	return do_load;
 	#endif
 }
 
-#if !MOVIEPLAYER
+#if defined(CHISLINK)
+bool chislink_savestate(void)
+#elif !MOVIEPLAYER
 int savestate(u8 *dest)
 #else
 bool savestate(const char *filename)
@@ -453,7 +530,12 @@ bool savestate(const char *filename)
 	int totalsize=0;
 	int mysize;
 	
-	#if !MOVIEPLAYER
+	#if defined(CHISLINK)
+	bool retval=false;
+	save_ptr file=0;
+	chislink_state_io_error=0;
+	blocks_loaded = 0;
+	#elif !MOVIEPLAYER
 	save_ptr file = dest;
 	#else
 	bool retval=false;
@@ -485,13 +567,15 @@ bool savestate(const char *filename)
 		FAT_fclose(file);
 //		build_chr_decode(); //BECAUSE OF POSSIBLE STACK OVERFLOW
 		retval=true;
+		#elif defined(CHISLINK)
+		retval=!chislink_state_io_error;
 		#endif
 		
 		//Restores the variables so we can run the emulator again
 		restore_variables_for_loadstate();
 	}
 	
-#if !MOVIEPLAYER
+#if !MOVIEPLAYER && !defined(CHISLINK)
 	return totalsize;
 #else
 	return retval;
@@ -642,7 +726,11 @@ void restore_variables_for_loadstate()
 	
 	oldpc=(u32)m6502_pc;
 	
-	#if MOVIEPLAYER
+	#if defined(CHISLINK)
+	if (chislink_pocketnes_restore_cache_map() < 0) {
+		chislink_state_io_error = 1;
+	}
+	#elif MOVIEPLAYER
 	update_cache();
 	build_chr_decode();
 	#else

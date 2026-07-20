@@ -5,7 +5,10 @@
 extern "C" {
 #endif
 
-#if !MOVIEPLAYER
+#if defined(CHISLINK)
+bool chislink_loadstate(uint32_t file_size);
+bool chislink_savestate(void);
+#elif !MOVIEPLAYER
 void loadstate(int romnumber, u8* src, int statesize);
 int savestate(u8 *dest);
 #else

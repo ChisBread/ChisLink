@@ -65,7 +65,12 @@ INCLUDES	:=	../chislink ../../gba/sdk/include ../../gba/runtime/include ../../co
 #---------------------------------------------------------------------------------
 ARCH	:=	-mthumb -mthumb-interwork
 
-CFLAGS	:=	-g -Wall -Os\
+OPTIMIZE	:=	-Os
+ifneq ($(findstring CHISLINK,$(DEFINES)),)
+OPTIMIZE	:=	-Oz
+endif
+
+CFLAGS	:=	-g -Wall $(OPTIMIZE)\
 			-mcpu=arm7tdmi -mtune=arm7tdmi\
  			-fomit-frame-pointer\
 			-ffast-math \
@@ -116,8 +121,9 @@ export DEPSDIR	:=	$(CURDIR)/$(BUILD)
 #---------------------------------------------------------------------------------
 CFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
 ifneq ($(findstring CHISLINK,$(DEFINES)),)
-CFILES		+=	chislink_bridge.c client.c storage_client.c ram_map.c wire.c \
-				gba_sio_transport.c hw.c sio.c proto.c
+CFILES		+=	chislink_bridge.c client.c storage_client.c stream.c \
+				stream_client.c ram_map.c wire.c gba_sio_transport.c hw.c \
+				sio.c proto.c
 endif
 CPPFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
 SFILES		:=	all.s

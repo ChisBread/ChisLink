@@ -12,7 +12,7 @@ EWRAM_BSS int mainmenuitems;//? or CARTMENUITEMS, depending on whether saving is
 #define ARRSIZE(xxxx) (sizeof((xxxx))/sizeof((xxxx)[0]))
 #endif
 
-#if !CARTSRAM
+#if !CARTSRAM && !defined(CHISLINK)
 //void savestatemenu(){} void loadstatemenu(){} void managesram(){}
 void quicksave(){} void quickload(){}
 #endif
@@ -84,8 +84,11 @@ const fptr fnlist1[]={autoBset,autoAset,ui3,ui2,ui4,
 #if MULTIBOOT
 multiboot,
 #endif
+#if CARTSRAM || defined(CHISLINK)
+savestatemenu,loadstatemenu,
+#endif
 #if CARTSRAM
-savestatemenu,loadstatemenu,managesram,
+managesram,
 #endif
 sleep_,
 #if GOMULTIBOOT
@@ -147,7 +150,11 @@ void ui()
 {
 	int key,soundvol,tm0cnt;
 	//int i;
+	#ifdef CHISLINK
+	int mb=0;
+	#else
 	int mb=(u32)textstart<0x8000000;
+	#endif
 	int savesuccess=1;
 	int usefade=1;
 
@@ -216,12 +223,14 @@ void ui()
 		if(key&(A_BTN)) {
 			fnlistX[mb][selected]();
 			selected = main_ui_selection;
+			#ifndef CHISLINK
 			if (mb != ((u32)textstart<0x8000000))
 			{
 				mb=1;
 				selected=0;
 				main_ui_selection = selected;
 			}
+			#endif
 		}
 		if(key&(A_BTN+UP+DOWN+LEFT+RIGHT))
 			drawui1();
@@ -457,9 +466,11 @@ void drawui1()
 	if(mainmenuitems==ARRSIZE(multifnlist)) {
 		print_1_1("Sleep");
 	} else {
-#if CARTSRAM
+#if CARTSRAM || defined(CHISLINK)
 		print_1_1("Save State->");
 		print_1_1("Load State->");
+#endif
+#if CARTSRAM
 		print_1_1("Manage SRAM->");
 #endif
 		print_1_1("Sleep");

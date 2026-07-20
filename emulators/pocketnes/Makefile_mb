@@ -112,8 +112,9 @@ export DEPSDIR	:=	$(CURDIR)/$(BUILD)
 # automatically build a list of object files for our project
 #---------------------------------------------------------------------------------
 CFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
-CFILES		+=	chislink_bridge.c client.c storage_client.c ram_map.c wire.c \
-				gba_sio_transport.c hw.c sio.c proto.c
+CFILES		+=	chislink_bridge.c client.c storage_client.c stream.c \
+				stream_client.c ram_map.c wire.c gba_sio_transport.c hw.c \
+				sio.c proto.c
 CPPFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
 SFILES		:=	$(filter-out gba_crt0_my.s,$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))) $(foreach dir,$(MAPPERS),$(notdir $(wildcard $(dir)/*.s)))
 #SFILES		:=	all.s $(foreach dir,$(MAPPERS),$(notdir $(wildcard $(dir)/*.s)))

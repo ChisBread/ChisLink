@@ -39,6 +39,89 @@ static int stream_command(cl_client_t *client,
     return 0;
 }
 
+static void stream_read_payload_words(cl_client_t *client,
+                                      uint8_t *dst,
+                                      const cl_payload_writer_t *writer,
+                                      uint32_t length) {
+    uint32_t aligned = (uint32_t)clp_aligned_length(length);
+    for (uint32_t offset = 0; offset < aligned; offset += 4u) {
+        uint32_t word = client->config.xfer32(
+            clp_make_word(CLP_TYPE_NOP, CLP_CH_CONTROL, CLP_CTRL_NOP, 0),
+            client->config.transport_user);
+        uint32_t valid = length - offset;
+        if (valid > 4u) valid = 4u;
+        if (writer) {
+            writer->store_word(writer->ctx, offset, word, valid);
+        } else if (dst) {
+            cl_wire_store_le32(dst + offset, word, valid);
+        }
+    }
+}
+
+static int stream_read_payload(cl_client_t *client,
+                               uint8_t *dst,
+                               const cl_payload_writer_t *writer,
+                               uint32_t length) {
+    int ret = 0;
+    if (length >= CL_CLIENT_FAST_PAYLOAD_THRESHOLD && writer &&
+        client->config.read_payload_writer) {
+        ret = client->config.read_payload_writer(
+            writer, length, client->config.transport_user);
+    } else if (length >= CL_CLIENT_FAST_PAYLOAD_THRESHOLD && dst &&
+               client->config.read_payload) {
+        ret = client->config.read_payload(dst, length,
+                                          client->config.transport_user);
+    } else {
+        stream_read_payload_words(client, dst, writer, length);
+    }
+    if (ret < 0) {
+        client->state = CL_CLIENT_ERROR;
+        client->last_status = CLP_STATUS_TIMEOUT;
+        return ret;
+    }
+    return 0;
+}
+
+static int stream_recv_payload(cl_client_t *client,
+                               cl_stream_t *stream,
+                               uint8_t *dst,
+                               const cl_payload_writer_t *writer,
+                               uint32_t capacity,
+                               uint32_t *out_length) {
+    if (!client || !stream || !stream->stream_id || !out_length ||
+        (!dst && (!writer || !writer->store_word)) || capacity == 0u ||
+        capacity > stream->slot_size) {
+        return -1;
+    }
+    *out_length = 0;
+    uint8_t request[CLP_STREAM_RECV_REQUEST_BYTES];
+    cl_wire_store_le32(request, stream->stream_id, 4u);
+    cl_wire_store_le32(request + 4u, capacity, 4u);
+    cl_wire_chunk_t chunk = { request, sizeof(request) };
+    clp_header_t response;
+    int ret = stream_command(client, CLP_STREAM_RECV, &chunk, 1u, &response);
+    if (ret < 0) {
+        stream->state = CL_STREAM_ERROR;
+        stream->last_error = ret;
+        return ret;
+    }
+    if (response.length > capacity) {
+        cl_wire_discard_payload(client, response.length);
+        stream->last_error = CL_CLIENT_STATUS_ERROR(CLP_STATUS_BAD_PACKET);
+        return -3;
+    }
+    if (response.length != 0u) {
+        ret = stream_read_payload(client, dst, writer, response.length);
+        if (ret < 0) {
+            stream->state = CL_STREAM_ERROR;
+            stream->last_error = ret;
+            return ret;
+        }
+    }
+    *out_length = response.length;
+    return 0;
+}
+
 int cl_stream_open(cl_client_t *client,
                    cl_stream_t *stream,
                    uint8_t kind,
@@ -220,33 +303,41 @@ int cl_stream_recv_slot(cl_client_t *client, cl_stream_t *stream) {
         return -2;
     }
 
-    uint8_t request[CLP_STREAM_RECV_REQUEST_BYTES];
-    cl_wire_store_le32(request, stream->stream_id, 4u);
-    cl_wire_store_le32(request + 4u, span.capacity, 4u);
-    cl_wire_chunk_t chunk = { request, sizeof(request) };
-    clp_header_t response;
-    ret = stream_command(client, CLP_STREAM_RECV, &chunk, 1u, &response);
-    if (ret < 0) {
-        stream->state = CL_STREAM_ERROR;
-        stream->last_error = ret;
-        return ret;
-    }
-    if (response.length > span.capacity) {
-        cl_wire_discard_payload(client, response.length);
-        stream->last_error = CL_CLIENT_STATUS_ERROR(CLP_STATUS_BAD_PACKET);
-        return -3;
-    }
-    if (response.length == 0) {
+    uint32_t received = 0;
+    ret = stream_recv_payload(client, stream, span.data, NULL,
+                              span.capacity, &received);
+    if (ret < 0) return ret;
+    if (received == 0u) {
         return 0;
     }
-
-    cl_wire_read_payload(client, span.data, response.length);
-    ret = cl_stream_producer_commit(stream, (uint16_t)response.length);
+    ret = cl_stream_producer_commit(stream, (uint16_t)received);
     if (ret < 0) {
         stream->state = CL_STREAM_ERROR;
         stream->last_error = ret;
     }
-    return ret < 0 ? ret : (int)response.length;
+    return ret < 0 ? ret : (int)received;
+}
+
+int cl_stream_recv_into(cl_client_t *client,
+                        cl_stream_t *stream,
+                        void *dst,
+                        uint32_t length,
+                        uint32_t *out_length) {
+    int ret = stream_recv_payload(client, stream, (uint8_t *)dst, NULL,
+                                  length, out_length);
+    if (ret == 0) stream->rx_offset += *out_length;
+    return ret;
+}
+
+int cl_stream_recv_with_writer(cl_client_t *client,
+                               cl_stream_t *stream,
+                               const cl_payload_writer_t *writer,
+                               uint32_t length,
+                               uint32_t *out_length) {
+    int ret = stream_recv_payload(client, stream, NULL, writer,
+                                  length, out_length);
+    if (ret == 0) stream->rx_offset += *out_length;
+    return ret;
 }
 
 static int stream_read_or_discard(cl_client_t *client,

@@ -90,8 +90,11 @@ const fptr fnlist1[]=
 	#if OLDSPEEDHACKS
 	ui4,
 	#endif
+	#if SAVE || defined(CHISLINK)
+	savestatemenu,loadstatemenu,
+	#endif
 	#if SAVE
-	savestatemenu,loadstatemenu,managesram,
+	managesram,
 	#endif
 	sleep_,
 	#if MULTIBOOT
@@ -236,9 +239,11 @@ void drawui1()
 		print_1_1("Restart");
 		print_1_1("Exit");
 	} else {
-		#if SAVE
+		#if SAVE || defined(CHISLINK)
 		print_1_1("Save State->");
 		print_1_1("Load State->");
+		#endif
+		#if SAVE
 		print_1_1("Manage SRAM->");
 		#endif
 		print_1_1("Sleep");
@@ -358,7 +363,11 @@ u32 getmenuinput(int menuitems)
 void ui()
 {
 	int key,soundvol,oldsel,tm0cnt,i;
+	#ifdef CHISLINK
+	int mb=0;
+	#else
 	int mb=(u32)textstart<0x8000000;
+	#endif
 
 	autoA=joycfg&A_BTN?0:1;
 	autoA|=joycfg&(A_BTN<<16)?0:2;
@@ -408,11 +417,13 @@ void ui()
 			oldsel=selected;
 			fnlistX[mb][selected]();
 			selected=oldsel;
+			#ifndef CHISLINK
 			if (mb != ((u32)textstart<0x8000000))
 			{
 				mb=1;
 				selected=0;
 			}
+			#endif
 		}
 		if(key&(A_BTN+UP+DOWN+LEFT+RIGHT))
 //			drawuiX[mb]();

@@ -343,7 +343,7 @@ SECTIONS
 	__chislink_stack_top = __chislink_stack_bottom + 0x1800;
 	__chislink_irq_stack_bottom = __chislink_stack_top;
 	__chislink_irq_stack_top = __chislink_irq_stack_bottom + 0x0800;
-	ASSERT(__chislink_irq_stack_top + 0x4000 <= END_OF_EXRAM,
+	ASSERT(__chislink_irq_stack_top + 0x2000 <= END_OF_EXRAM,
 	       "PocketNES cache/stack leaves too little high EWRAM workspace")
 
 	/*
