@@ -63,6 +63,20 @@ static void read_payload_words(cl_client_t *client, uint8_t *payload,
     }
 }
 
+static void read_payload_writer_words(cl_client_t *client,
+                                      const cl_payload_writer_t *writer,
+                                      uint32_t length) {
+    uint32_t aligned = (uint32_t)clp_aligned_length(length);
+    for (uint32_t offset = 0; offset < aligned; offset += 4u) {
+        uint32_t word = client->config.xfer32(
+            clp_make_word(CLP_TYPE_NOP, CLP_CH_CONTROL, CLP_CTRL_NOP, 0),
+            client->config.transport_user);
+        uint32_t valid = length - offset;
+        if (valid > 4u) valid = 4u;
+        writer->store_word(writer->ctx, offset, word, valid);
+    }
+}
+
 static int read_payload_fast_or_words(cl_client_t *client, uint8_t *payload,
                                       uint32_t length) {
     if (length >= CL_CLIENT_FAST_PAYLOAD_THRESHOLD &&
@@ -77,6 +91,25 @@ static int read_payload_fast_or_words(cl_client_t *client, uint8_t *payload,
         return 0;
     }
     read_payload_words(client, payload, length);
+    return 0;
+}
+
+static int read_payload_writer_fast_or_words(
+    cl_client_t *client,
+    const cl_payload_writer_t *writer,
+    uint32_t length) {
+    if (length >= CL_CLIENT_FAST_PAYLOAD_THRESHOLD &&
+        client->config.read_payload_writer) {
+        int ret = client->config.read_payload_writer(
+            writer, length, client->config.transport_user);
+        if (ret < 0) {
+            client->state = CL_CLIENT_ERROR;
+            client->last_status = CLP_STATUS_TIMEOUT;
+            return ret;
+        }
+        return 0;
+    }
+    read_payload_writer_words(client, writer, length);
     return 0;
 }
 
@@ -301,9 +334,13 @@ int cl_storage_close(cl_storage_client_t *storage, uint16_t handle) {
     return response.imm == CLP_STATUS_OK ? 0 : -3;
 }
 
-int cl_storage_read(cl_storage_client_t *storage, uint16_t handle, void *dst,
-                    uint32_t length, uint32_t *out_length) {
-    if (!dst || !out_length) {
+static int storage_read(cl_storage_client_t *storage,
+                        uint16_t handle,
+                        void *dst,
+                        const cl_payload_writer_t *writer,
+                        uint32_t length,
+                        uint32_t *out_length) {
+    if ((!dst && !writer) || (writer && !writer->store_word) || !out_length) {
         return -1;
     }
     uint8_t payload[CLP_STORAGE_READ_REQUEST_BYTES];
@@ -319,13 +356,31 @@ int cl_storage_read(cl_storage_client_t *storage, uint16_t handle, void *dst,
     if (response.imm != CLP_STATUS_OK || response.length > length) {
         return -3;
     }
-    ret = read_payload_fast_or_words(storage->client, (uint8_t *)dst,
-                                     response.length);
+    if (writer) {
+        ret = read_payload_writer_fast_or_words(storage->client, writer,
+                                                response.length);
+    } else {
+        ret = read_payload_fast_or_words(storage->client, (uint8_t *)dst,
+                                         response.length);
+    }
     if (ret < 0) {
         return -2;
     }
     *out_length = response.length;
     return 0;
+}
+
+int cl_storage_read(cl_storage_client_t *storage, uint16_t handle, void *dst,
+                    uint32_t length, uint32_t *out_length) {
+    return storage_read(storage, handle, dst, NULL, length, out_length);
+}
+
+int cl_storage_read_with_writer(cl_storage_client_t *storage,
+                                uint16_t handle,
+                                const cl_payload_writer_t *writer,
+                                uint32_t length,
+                                uint32_t *out_length) {
+    return storage_read(storage, handle, NULL, writer, length, out_length);
 }
 
 int cl_storage_write_direct(cl_storage_client_t *storage,

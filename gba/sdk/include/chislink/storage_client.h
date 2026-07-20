@@ -64,6 +64,16 @@ int cl_storage_close(cl_storage_client_t *storage, uint16_t handle);
 int cl_storage_read(cl_storage_client_t *storage, uint16_t handle, void *dst,
                     uint32_t length, uint32_t *out_length);
 
+/** Read using a caller-provided word writer. The writer receives aligned
+ *  little-endian protocol words and the exact valid-byte count for the tail.
+ *  This avoids intermediate buffers for destinations with restricted write
+ *  widths, such as GBA VRAM. */
+int cl_storage_read_with_writer(cl_storage_client_t *storage,
+                                uint16_t handle,
+                                const cl_payload_writer_t *writer,
+                                uint32_t length,
+                                uint32_t *out_length);
+
 /** Write to a remote handle.
  *  The SDK automatically splits requests larger than the storage write frame
  *  ceiling; no extra caller buffer is allocated.  Higher-level copy code also

@@ -45,6 +45,8 @@ typedef struct cl_gba_sio_transport {
     volatile uint8_t fast_timed_out; /**< 1 when a fast payload phase timed out. */
     volatile uint32_t fast_offset; /**< Byte offset used by fast payload IRQ. */
     uint8_t *fast_rx_dst;         /**< Destination for fast MCU->GBA payload. */
+    cl_payload_store_word_t fast_rx_store_word; /**< Optional RX word writer. */
+    void *fast_rx_store_ctx;      /**< Context for fast_rx_store_word. */
     const uint8_t *fast_tx_src;   /**< Source for fast GBA->MCU payload. */
     const cl_direct_window_t *fast_tx_window; /**< Direct-window TX source. */
     uint32_t fast_tx_window_offset; /**< Base offset in fast_tx_window. */

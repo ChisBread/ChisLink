@@ -54,6 +54,26 @@ typedef uint32_t (*cl_transport_xfer32_t)(uint32_t out_word, void *user);
 typedef int (*cl_transport_read_payload_t)(void *dst, uint32_t length,
                                            void *user);
 
+/** Receives one little-endian payload word. valid_bytes is 1..4 for the final
+ *  word and 4 otherwise. This supports destinations such as GBA VRAM that do
+ *  not permit byte writes. */
+typedef void (*cl_payload_store_word_t)(void *ctx,
+                                        uint32_t offset,
+                                        uint32_t word,
+                                        uint32_t valid_bytes);
+
+typedef struct cl_payload_writer {
+    cl_payload_store_word_t store_word;
+    void *ctx;
+} cl_payload_writer_t;
+
+/** Optional fixed-length MCU->GBA payload fast path using a caller-provided
+ *  word writer instead of a byte-addressable destination. */
+typedef int (*cl_transport_read_payload_writer_t)(
+    const cl_payload_writer_t *writer,
+    uint32_t length,
+    void *user);
+
 /** Optional transport fast path for fixed-length GBA->MCU payloads.
  *  Returns 0 on success, negative on timeout/transport error. */
 typedef int (*cl_transport_write_payload_t)(const void *src, uint32_t length,
@@ -82,6 +102,8 @@ typedef struct cl_client_config {
     cl_transport_xfer32_t xfer32;
     /** Optional fixed-length MCU->GBA payload fast path. */
     cl_transport_read_payload_t read_payload;
+    /** Optional fixed-length MCU->GBA payload writer fast path. */
+    cl_transport_read_payload_writer_t read_payload_writer;
     /** Optional fixed-length GBA->MCU payload fast path. */
     cl_transport_write_payload_t write_payload;
     /** Optional fixed-length direct-window GBA->MCU payload fast path. */

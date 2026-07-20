@@ -8,7 +8,12 @@
 
 static cl_gba_sio_transport_t *g_fast_transport;
 
-static uint32_t CL_GBA_IWRAM_CODE
+/* Keep the optional direct-payload IRQ path independently collectable. Bare
+ * word-only users should retain only cl_gba_sio_transport_irq_word in IWRAM. */
+#define CL_GBA_SIO_FAST_CODE \
+    __attribute__((section(".iwram.fast"), long_call))
+
+static uint32_t CL_GBA_SIO_FAST_CODE
 fast_load_le32(const uint8_t *src, uint32_t available) {
     uint32_t word = 0;
     for (uint32_t i = 0; i < 4u && i < available; ++i) {
@@ -17,14 +22,14 @@ fast_load_le32(const uint8_t *src, uint32_t available) {
     return word;
 }
 
-static void CL_GBA_IWRAM_CODE
+static void CL_GBA_SIO_FAST_CODE
 fast_store_le32(uint8_t *dst, uint32_t word, uint32_t available) {
     for (uint32_t i = 0; i < 4u && i < available; ++i) {
         dst[i] = (uint8_t)(word >> (i * 8u));
     }
 }
 
-static uint32_t CL_GBA_IWRAM_CODE
+static uint32_t CL_GBA_SIO_FAST_CODE
 fast_window_load_le32(const cl_direct_window_t *window,
                       uint32_t offset,
                       uint32_t available) {
@@ -57,17 +62,17 @@ fast_window_load_le32(const cl_direct_window_t *window,
     return word;
 }
 
-static uint16_t CL_GBA_IWRAM_CODE fast_irq_lock(void) {
+static uint16_t CL_GBA_SIO_FAST_CODE fast_irq_lock(void) {
     uint16_t ime = CL_GBA_REG_IME;
     CL_GBA_REG_IME = 0;
     return ime;
 }
 
-static void CL_GBA_IWRAM_CODE fast_irq_unlock(uint16_t ime) {
+static void CL_GBA_SIO_FAST_CODE fast_irq_unlock(uint16_t ime) {
     CL_GBA_REG_IME = ime;
 }
 
-static void CL_GBA_IWRAM_CODE
+static void CL_GBA_SIO_FAST_CODE
 fast_disarm_idle(cl_gba_sio_transport_t *transport) {
     CL_GBA_REG_SIODATA32 = transport ? transport->idle_word : 0;
     cl_gba_sio_disarm();
@@ -80,7 +85,7 @@ fast_restore_dispatch(cl_gba_sio_transport_t *transport) {
     fast_disarm_idle(transport);
 }
 
-static void CL_GBA_IWRAM_CODE fast_finish_irq(void) {
+static void CL_GBA_SIO_FAST_CODE fast_finish_irq(void) {
     cl_gba_sio_transport_t *transport = g_fast_transport;
     if (transport) {
         transport->fast_done = 1u;
@@ -88,7 +93,7 @@ static void CL_GBA_IWRAM_CODE fast_finish_irq(void) {
     }
 }
 
-static void CL_GBA_IWRAM_CODE fast_rx_irq(void) {
+static void CL_GBA_SIO_FAST_CODE fast_rx_irq(void) {
     cl_gba_sio_transport_t *transport = g_fast_transport;
     if (!transport) {
         fast_disarm_idle(0);
@@ -99,7 +104,13 @@ static void CL_GBA_IWRAM_CODE fast_rx_irq(void) {
     uint32_t word = CL_GBA_REG_SIODATA32;
     if (offset < transport->fast_length) {
         uint32_t remaining = transport->fast_length - offset;
-        fast_store_le32(transport->fast_rx_dst + offset, word, remaining);
+        uint32_t valid = remaining > 4u ? 4u : remaining;
+        if (transport->fast_rx_store_word) {
+            transport->fast_rx_store_word(transport->fast_rx_store_ctx,
+                                          offset, word, valid);
+        } else {
+            fast_store_le32(transport->fast_rx_dst + offset, word, valid);
+        }
     }
 
     offset += 4u;
@@ -112,7 +123,7 @@ static void CL_GBA_IWRAM_CODE fast_rx_irq(void) {
     cl_gba_sio_send32(transport->idle_word);
 }
 
-static void CL_GBA_IWRAM_CODE fast_tx_send_next(
+static void CL_GBA_SIO_FAST_CODE fast_tx_send_next(
     cl_gba_sio_transport_t *transport) {
     uint32_t offset = transport->fast_offset;
     uint32_t remaining = transport->fast_length > offset ?
@@ -122,7 +133,7 @@ static void CL_GBA_IWRAM_CODE fast_tx_send_next(
     cl_gba_sio_send32(word);
 }
 
-static void CL_GBA_IWRAM_CODE fast_window_tx_send_next(
+static void CL_GBA_SIO_FAST_CODE fast_window_tx_send_next(
     cl_gba_sio_transport_t *transport) {
     uint32_t offset = transport->fast_offset;
     uint32_t remaining = transport->fast_length > offset ?
@@ -134,7 +145,7 @@ static void CL_GBA_IWRAM_CODE fast_window_tx_send_next(
     cl_gba_sio_send32(word);
 }
 
-static void CL_GBA_IWRAM_CODE fast_tx_irq(void) {
+static void CL_GBA_SIO_FAST_CODE fast_tx_irq(void) {
     cl_gba_sio_transport_t *transport = g_fast_transport;
     if (!transport) {
         fast_disarm_idle(0);
@@ -148,7 +159,7 @@ static void CL_GBA_IWRAM_CODE fast_tx_irq(void) {
     fast_tx_send_next(transport);
 }
 
-static void CL_GBA_IWRAM_CODE fast_window_tx_irq(void) {
+static void CL_GBA_SIO_FAST_CODE fast_window_tx_irq(void) {
     cl_gba_sio_transport_t *transport = g_fast_transport;
     if (!transport) {
         fast_disarm_idle(0);
@@ -199,6 +210,41 @@ static int cl_gba_sio_transport_read_payload(void *dst, uint32_t length,
     transport->timed_out = 0u;
     transport->fast_offset = 0u;
     transport->fast_rx_dst = (uint8_t *)dst;
+    transport->fast_rx_store_word = 0;
+    transport->fast_rx_store_ctx = 0;
+    transport->fast_tx_src = 0;
+    transport->fast_tx_window = 0;
+    transport->fast_tx_window_offset = 0;
+    transport->fast_length = length;
+    transport->fast_aligned = (uint32_t)clp_aligned_length(length);
+    g_fast_transport = transport;
+    cl_sio_handler_set_direct(fast_rx_irq);
+    fast_irq_unlock(ime);
+
+    cl_gba_sio_send32(transport->idle_word);
+    return fast_wait(transport);
+}
+
+static int cl_gba_sio_transport_read_payload_writer(
+    const cl_payload_writer_t *writer,
+    uint32_t length,
+    void *user) {
+    cl_gba_sio_transport_t *transport = (cl_gba_sio_transport_t *)user;
+    if (!transport || !writer || !writer->store_word) {
+        return -1;
+    }
+    if (!length) {
+        return 0;
+    }
+
+    uint16_t ime = fast_irq_lock();
+    transport->fast_done = 0u;
+    transport->fast_timed_out = 0u;
+    transport->timed_out = 0u;
+    transport->fast_offset = 0u;
+    transport->fast_rx_dst = 0;
+    transport->fast_rx_store_word = writer->store_word;
+    transport->fast_rx_store_ctx = writer->ctx;
     transport->fast_tx_src = 0;
     transport->fast_tx_window = 0;
     transport->fast_tx_window_offset = 0;
@@ -228,6 +274,8 @@ static int cl_gba_sio_transport_write_payload(const void *src, uint32_t length,
     transport->timed_out = 0u;
     transport->fast_offset = 0u;
     transport->fast_rx_dst = 0;
+    transport->fast_rx_store_word = 0;
+    transport->fast_rx_store_ctx = 0;
     transport->fast_tx_src = (const uint8_t *)src;
     transport->fast_tx_window = 0;
     transport->fast_tx_window_offset = 0;
@@ -261,6 +309,8 @@ static int cl_gba_sio_transport_write_window_payload(
     transport->timed_out = 0u;
     transport->fast_offset = 0u;
     transport->fast_rx_dst = 0;
+    transport->fast_rx_store_word = 0;
+    transport->fast_rx_store_ctx = 0;
     transport->fast_tx_src = 0;
     transport->fast_tx_window = window;
     transport->fast_tx_window_offset = offset;
@@ -307,6 +357,8 @@ bool cl_gba_sio_transport_init(cl_gba_sio_transport_t *transport,
     transport->fast_timed_out = 0u;
     transport->fast_offset = 0u;
     transport->fast_rx_dst = 0;
+    transport->fast_rx_store_word = 0;
+    transport->fast_rx_store_ctx = 0;
     transport->fast_tx_src = 0;
     transport->fast_tx_window = 0;
     transport->fast_tx_window_offset = 0;
@@ -329,6 +381,7 @@ bool cl_gba_sio_transport_init_client(cl_gba_sio_transport_t *transport,
     cl_client_config_t cfg = {
         .xfer32 = cl_gba_sio_transport_xfer32,
         .read_payload = cl_gba_sio_transport_read_payload,
+        .read_payload_writer = cl_gba_sio_transport_read_payload_writer,
         .write_payload = cl_gba_sio_transport_write_payload,
         .write_window_payload = cl_gba_sio_transport_write_window_payload,
         .transport_user = transport,

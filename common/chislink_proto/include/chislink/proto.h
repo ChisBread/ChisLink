@@ -41,6 +41,7 @@ extern "C" {
 #define CLP_CAP_MANAGER_MULTIBOOT 0x00000100u
 #define CLP_CAP_STREAM_PUMP   0x00000200u
 #define CLP_CAP_STREAM         0x00000400u
+#define CLP_CAP_RAM_MAP        0x00000800u
 
 #define CLP_DEFAULT_BLOCK_SIZE 32768u
 #define CLP_DEFAULT_ALIGNMENT  4u
@@ -71,6 +72,11 @@ extern "C" {
 #define CLP_STORAGE_CRC32_PATH_OFFSET CLP_STORAGE_CRC32_REQUEST_FIXED_BYTES
 #define CLP_STORAGE_CRC32_RESPONSE_FIXED_BYTES 12u
 #define CLP_STORAGE_CRC32_FIX_GBA_HEADER 0x00000001u
+
+#define CLP_RAM_MAP_KEY_MAX_BYTES 64u
+#define CLP_RAM_MAP_VALUE_MAX_BYTES 2048u
+#define CLP_RAM_MAP_PUT_FIXED_BYTES 8u
+#define CLP_RAM_MAP_KEY_FIXED_BYTES 4u
 
 #define CLP_STORAGE_OPEN_RESPONSE_WORDS 1u
 #define CLP_STORAGE_RW_RESPONSE_WORDS   1u
@@ -329,6 +335,7 @@ typedef enum clp_packet_type {
 typedef enum clp_channel {
     CLP_CH_CONTROL = 0x00,
     CLP_CH_MANAGER = 0x01,
+    CLP_CH_RAM_MAP = 0x02,
     CLP_CH_STORAGE = 0x03,
     CLP_CH_NET = 0x04,
     CLP_CH_BLE = 0x05,
@@ -352,6 +359,25 @@ typedef enum clp_manager_opcode {
     CLP_MANAGER_START_MULTIBOOT = 0x03,
     CLP_MANAGER_RESET_RUNTIME = 0x04,
 } clp_manager_opcode_t;
+
+typedef enum clp_ram_map_opcode {
+    CLP_RAM_MAP_PUT = 0x01,
+    CLP_RAM_MAP_GET = 0x02,
+    CLP_RAM_MAP_REMOVE = 0x03,
+    CLP_RAM_MAP_CLEAR = 0x04,
+} clp_ram_map_opcode_t;
+
+typedef enum clp_launch_type {
+    CLP_LAUNCH_NONE = 0,
+    CLP_LAUNCH_GAMEBOY = 1,
+    CLP_LAUNCH_NES = 2,
+} clp_launch_type_t;
+
+#define CLP_LAUNCH_MAP_KEY "launch.target"
+#define CLP_LAUNCH_VALUE_VERSION 1u
+#define CLP_LAUNCH_VALUE_FIXED_BYTES 16u
+#define CLP_LAUNCH_VALUE_MAX_BYTES \
+    (CLP_LAUNCH_VALUE_FIXED_BYTES + CLP_STORAGE_PATH_MAX_BYTES)
 
 typedef enum clp_storage_opcode {
     CLP_STORAGE_OPEN = 0x01,

@@ -93,6 +93,7 @@ extern "C" {
 #define CL_GBA_KEY_L      0x0200u
 
 #define CL_GBA_IRQ_VBLANK 0x0001u
+#define CL_GBA_IRQ_VCOUNT 0x0004u
 #define CL_GBA_IRQ_SERIAL 0x0080u
 #define CL_GBA_IRQ_KEYPAD 0x1000u
 
