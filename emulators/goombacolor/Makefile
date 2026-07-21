@@ -79,6 +79,7 @@ CFLAGS	:=	-g -Wall $(OPTIMIZE)\
 			$(ARCH)
 
 DEFINES ?=
+export DEFINES
 CFLAGS	+=	$(INCLUDE) $(DEFINES)
 
 CXXFLAGS := $(CFLAGS) \
