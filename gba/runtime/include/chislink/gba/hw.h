@@ -7,7 +7,9 @@
 extern "C" {
 #endif
 
+#ifndef CL_GBA_IWRAM_CODE
 #define CL_GBA_IWRAM_CODE __attribute__((section(".iwram"), long_call))
+#endif
 
 #define CL_GBA_SCREEN_WIDTH  240u
 #define CL_GBA_SCREEN_HEIGHT 160u
