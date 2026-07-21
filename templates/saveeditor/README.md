@@ -41,9 +41,11 @@ Localized labels use `en:Name|zh:名字`. Manager chooses the current UI languag
 - `writable=0|1`: Whether Manager may write edited values back. Use `0` until selector, checksum, and linked fields are fully understood.
 - `slots=<count>` and `slot_stride=<bytes>`: Simple fixed-slot v1/v2 layout.
 - `selector=...`: v2 slot/copy selector for more complex saves.
+- `valid=<offset>,nonzero|zero|selected_bit[,scope]`: Optional selected-slot validity byte or bit. Scope defaults to `slot`.
 - `slot_label=<label>,string|type,<offset>,<length>`: Read-only slot display value, such as a character name or save counter.
 - `field=<label>,<type>,<offset>,<min>,<max>,<step>[,<bit_offset>,<bit_width>]`: Editable scalar or bitfield.
-- `checksum=<algorithm>,<target_offset>,<type>,<start>,<end>[,<initial>,<skip_offset>]`: v2 checksum rule.
+- `mirror=<source>,<target>,<type>[,<source_scope>,<target_scope>]`: Copy a value after field writes and before checksums.
+- `checksum=<algorithm>,<target_offset>,<type>,<start>,<end>[,<initial>,<skip_offset>,<scope>,<target_scope>]`: v2 checksum rule.
 - `magic=<offset>,<stride>,<ASCII>`: Legacy fixed-slot validity marker.
 
 - `version=1|2`：模板格式版本。新模板请使用 `2`。
@@ -51,9 +53,11 @@ Localized labels use `en:Name|zh:名字`. Manager chooses the current UI languag
 - `writable=0|1`：是否允许 Manager 写回修改。没有完全确认槽位选择、校验和、联动字段前请使用 `0`。
 - `slots=<数量>` 和 `slot_stride=<字节>`：简单固定槽位布局，可用于 v1/v2。
 - `selector=...`：v2 的槽位/副本选择规则，用于更复杂的存档。
+- `valid=<偏移>,nonzero|zero|selected_bit[,作用域]`：可选的槽位有效性字节或 bit。作用域默认为 `slot`。
 - `slot_label=<标签>,string|类型,<偏移>,<长度>`：只读槽位显示值，例如角色名或保存次数。
 - `field=<标签>,<类型>,<偏移>,<最小>,<最大>,<步进>[,<位偏移>,<位宽>]`：可编辑标量或位字段。
-- `checksum=<算法>,<目标偏移>,<类型>,<开始>,<结束>[,<初值>,<跳过偏移>]`：v2 校验规则。
+- `mirror=<源偏移>,<目标偏移>,<类型>[,<源作用域>,<目标作用域>]`：字段写入后、校验前复制一个值。
+- `checksum=<算法>,<目标偏移>,<类型>,<开始>,<结束>[,<初值>,<跳过偏移>,<作用域>,<目标作用域>]`：v2 校验规则。
 - `magic=<偏移>,<步长>,<ASCII>`：旧版固定槽位有效性标记。
 
 ## Value types / 数值类型
@@ -104,6 +108,14 @@ Physical page by slot id:
 selector=slot_id,<slot_count>,<scan_base>,<scan_stride>,<scan_count>,<magic_offset>,<magic|none>,<id_offset>,<id_type>
 ```
 
+Active section with optional slot remapping:
+
+```text
+selector=active_section,<slot_count>,<section_base>,<section_stride>,<active_index_offset>,<slot_base>,<slot_stride>[,<slot_map>]
+```
+
+`slot_map` is a `|` separated physical-slot list. For example, `1|2|3|4|0` makes UI slots 1-5 point to physical slots 2, 3, 4, 5, and 1.
+
 `magic=none` skips the marker check and scans by counter or slot id only.
 
 固定槽位：
@@ -130,17 +142,25 @@ selector=last_magic,<槽位数>,<扫描基址>,<扫描步长>,<扫描数量>,<ma
 selector=slot_id,<槽位数>,<扫描基址>,<扫描步长>,<扫描数量>,<magic偏移>,<magic|none>,<id偏移>,<id类型>
 ```
 
+带可选槽位重映射的活动分区：
+
+```text
+selector=active_section,<槽位数>,<分区基址>,<分区步长>,<活动分区索引偏移>,<槽位基址>,<槽位步长>[,<槽位映射>]
+```
+
+`槽位映射` 使用 `|` 分隔物理槽位。例如 `1|2|3|4|0` 表示界面第 1-5 槽分别对应物理第 2、3、4、5、1 槽。
+
 `magic=none` 表示不检查标记，只按计数器或槽位 id 扫描。
 
 ## Checksums / 校验和
 
-Supported algorithms: `minish`, `byte_sum`, `byte_sum_xor`, `word_sum`, `word_sub`, `advance_wars`, `kingdom_hearts`, `fire_emblem`, `word_nonzero`, `wario_sum`, and `wario_complement`.
+Supported algorithms: `minish`, `byte_sum`, `byte_sum_xor`, `word_sum`, `word_sub`, `advance_wars`, `kingdom_hearts`, `fire_emblem`, `word_nonzero`, `word_sparse5`, `wario_sum`, and `wario_complement`.
 
-The checksum range is `[start, end)`, relative to the selected data base. When saving, Manager writes zero to checksum targets first, recalculates each rule, then writes the new checksum value.
+The checksum range is `[start, end)`. By default it is relative to the selected data base. The optional scope can be `slot`, `section`, `slot_header8`, `paired_slot3`, `system_slot16`, or `absolute`; `target_scope` defaults to the range scope. `section` is for selectors such as `active_section` where checksums cover the current whole save section rather than only one slot. `slot_header8` uses the 8 bytes immediately before the selected data base as the checksum base. `paired_slot3` targets the scanned slot-id page whose id is the selected slot plus 3. `system_slot16` targets `selected_slot * 0x10` and is useful for saves whose slot checksums live in a compact system table. When saving, Manager writes zero to checksum targets first, recalculates each rule, then writes the new checksum value.
 
-支持的算法：`minish`、`byte_sum`、`byte_sum_xor`、`word_sum`、`word_sub`、`advance_wars`、`kingdom_hearts`、`fire_emblem`、`word_nonzero`、`wario_sum`、`wario_complement`。
+支持的算法：`minish`、`byte_sum`、`byte_sum_xor`、`word_sum`、`word_sub`、`advance_wars`、`kingdom_hearts`、`fire_emblem`、`word_nonzero`、`word_sparse5`、`wario_sum`、`wario_complement`。
 
-校验范围为 `[start, end)`，相对于选中的数据基址。保存时 Manager 会先把校验目标写 0，再重新计算并写入新值。
+校验范围为 `[start, end)`。默认相对于选中的数据基址。可选作用域为 `slot`、`section`、`slot_header8`、`paired_slot3`、`system_slot16` 或 `absolute`；`target_scope` 默认跟随范围作用域。`section` 用于 `active_section` 这类校验覆盖当前整个存档分区、而不是单个槽位的情况。`slot_header8` 使用选中数据基址前 8 字节作为校验基址。`paired_slot3` 指向扫描到的槽位 ID 为当前槽位加 3 的页面。`system_slot16` 指向 `当前槽位 * 0x10`，用于槽位校验值存放在紧凑系统表里的存档。保存时 Manager 会先把校验目标写 0，再重新计算并写入新值。
 
 ## Write safety / 写入安全
 
@@ -185,54 +205,52 @@ Use `writable=0` for view-only templates. This still helps users inspect slot na
 Writable templates:
 
 - `AAME`, `AAMJ`, `AAMP`: Castlevania: Circle of the Moon
-- `AFFE`, `AFFJ`, `AFFP`: Final Fight One
-- `AKWE`, `AKWP`: Konami Krazy Racers
-- `ASOE`, `ASOJ`, `ASOP`: Sonic Advance
-- `A2NE`, `A2NJ`, `A2NP`: Sonic Advance 2
-- `B3SE`, `B3SJ`, `B3SP`: Sonic Advance 3
-- `AWAE`: Wario Land 4
-- `AXRE`, `AXRJ`, `AXRP`: Super Street Fighter II Turbo Revival
-- `AZWE`, `AZWP`: WarioWare, Inc.
-- `BZME`, `BZMJ`, `BZMP`: The Legend of Zelda: The Minish Cap
-
-View-only templates:
-
-- `AWRE`, `AWRP`: Advance Wars
 - `A2CE`, `A2CJ`, `A2CP`: Castlevania: Aria of Sorrow
 - `ACHE`, `ACHJ`, `ACHP`: Castlevania: Harmony of Dissonance
-- `AFZC`, `AFZE`, `AFZJ`: F-Zero: Maximum Velocity
-- `BZ6E`, `BZ6J`, `BZ6P`: Final Fantasy VI Advance
 - `AE7E`, `AE7J`, `AE7X`, `AE7Y`: Fire Emblem: The Blazing Blade
+- `AFFE`, `AFFJ`, `AFFP`: Final Fight One
 - `AGSE`, `AGSJ`, `AGSD`, `AGSF`, `AGSI`, `AGSS`: Golden Sun
 - `AGFE`, `AGFJ`, `AGFD`, `AGFF`, `AGFI`, `AGFS`: Golden Sun: The Lost Age
-- `B8CE`, `B8CJ`, `B8CP`: Kingdom Hearts: Chain of Memories
+- `AKWE`, `AKWP`: Konami Krazy Racers
 - `AKRJ`, `AKRP`: Kuru Kuru Kururin
+- `ASOE`, `ASOJ`, `ASOP`: Sonic Advance
+- `A2NE`, `A2NJ`, `A2NP`: Sonic Advance 2
+- `AFZC`, `AFZE`, `AFZJ`: F-Zero: Maximum Velocity
+- `B3SE`, `B3SJ`, `B3SP`: Sonic Advance 3
+- `AWAE`: Wario Land 4
+- `AWRE`, `AWRP`: Advance Wars
+- `AXRE`, `AXRJ`, `AXRP`: Super Street Fighter II Turbo Revival
+- `AZWE`, `AZWP`: WarioWare, Inc.
+- `B8CE`, `B8CJ`, `B8CP`: Kingdom Hearts: Chain of Memories
+- `BZ6E`, `BZ6J`, `BZ6P`: Final Fantasy VI Advance
+- `BZME`, `BZMJ`, `BZMP`: The Legend of Zelda: The Minish Cap
+
+View-only templates: none.
 
 可写模板：
 
 - `AAME`、`AAMJ`、`AAMP`：恶魔城 Circle of the Moon
-- `AFFE`、`AFFJ`、`AFFP`：快打旋风 One
-- `AKWE`、`AKWP`：Konami Krazy Racers
-- `ASOE`、`ASOJ`、`ASOP`：索尼克 Advance
-- `A2NE`、`A2NJ`、`A2NP`：索尼克 Advance 2
-- `B3SE`、`B3SJ`、`B3SP`：索尼克 Advance 3
-- `AWAE`：瓦力欧大陆 4
-- `AXRE`、`AXRJ`、`AXRP`：超级街霸 II Turbo Revival
-- `AZWE`、`AZWP`：瓦力欧制造
-- `BZME`、`BZMJ`、`BZMP`：塞尔达传说 缩小帽
-
-只读模板：
-
-- `AWRE`、`AWRP`：高级战争
 - `A2CE`、`A2CJ`、`A2CP`：恶魔城 晓月圆舞曲
 - `ACHE`、`ACHJ`、`ACHP`：恶魔城 白夜协奏曲
-- `AFZC`、`AFZE`、`AFZJ`：F-Zero Maximum Velocity
-- `BZ6E`、`BZ6J`、`BZ6P`：最终幻想 VI Advance
 - `AE7E`、`AE7J`、`AE7X`、`AE7Y`：火焰纹章 烈火之剑
+- `AFFE`、`AFFJ`、`AFFP`：快打旋风 One
 - `AGSE`、`AGSJ`、`AGSD`、`AGSF`、`AGSI`、`AGSS`：黄金太阳 开启的封印
 - `AGFE`、`AGFJ`、`AGFD`、`AGFF`、`AGFI`、`AGFS`：黄金太阳 失落的时代
+- `AKWE`、`AKWP`：Konami Krazy Racers
+- `AKRJ`、`AKRP`：Kuru Kuru Kururin
+- `ASOE`、`ASOJ`、`ASOP`：索尼克 Advance
+- `A2NE`、`A2NJ`、`A2NP`：索尼克 Advance 2
+- `AFZC`、`AFZE`、`AFZJ`：F-Zero Maximum Velocity
+- `B3SE`、`B3SJ`、`B3SP`：索尼克 Advance 3
+- `AWAE`：瓦力欧大陆 4
+- `AWRE`、`AWRP`：Advance Wars
+- `AXRE`、`AXRJ`、`AXRP`：超级街霸 II Turbo Revival
+- `AZWE`、`AZWP`：瓦力欧制造
 - `B8CE`、`B8CJ`、`B8CP`：王国之心 记忆之链
-- `AKRJ`、`AKRP`：转转棒
+- `BZ6E`、`BZ6J`、`BZ6P`：最终幻想 VI Advance
+- `BZME`、`BZMJ`、`BZMP`：塞尔达传说 缩小帽
+
+只读模板：无。
 
 ## Attribution / 来源说明
 
