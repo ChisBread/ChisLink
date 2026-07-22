@@ -22,7 +22,7 @@ typedef struct cl_cart_gba_ctx {
     cl_cart_gba_flash_erase_fn erase_flash;
     cl_cart_gba_flash_write_fn write_flash_byte;
     void *flash_user;
-    uint8_t flash_erased_for_write;
+    uint32_t flash_erased_sector_mask;
     cl_cart_gba_eeprom_read_fn read_eeprom_unit;
     cl_cart_gba_eeprom_write_fn write_eeprom_unit;
     void *eeprom_user;
@@ -42,8 +42,14 @@ static cl_cart_gba_ctx_t g_ctx;
 #define CL_CART_GBA_EEPROM_UNIT_SIZE 8u
 #define CL_GBA_WAITCNT_EEPROM_MASK 0x0f00u
 #define CL_GBA_WAITCNT_EEPROM_X3XX 0x0300u
+#define CL_GBA_WAITCNT_SRAM_MASK 0x0003u
+#define CL_GBA_WAITCNT_SRAM_8 0x0003u
 #define CL_CART_GBA_EEPROM_READ_ATTEMPTS 8u
 #define CL_CART_GBA_EEPROM_STABLE_READS 3u
+#define CL_CART_GBA_FLASH_SECTOR_SIZE 4096u
+#define CL_CART_GBA_FLASH_SECTORS_PER_BANK \
+    (CL_CART_GBA_SRAM_BANK_SIZE / CL_CART_GBA_FLASH_SECTOR_SIZE)
+#define CL_CART_GBA_FLASH_POLL_LIMIT 0x100000u
 
 #define CL_CART_GBA_BOOT_VECTOR_SEARCH_BYTES 0x2000u
 #define CL_CART_GBA_SAVE_FLASH_ID_SST_39VF512 0xbfd4u
@@ -196,17 +202,48 @@ static void default_switch_flash_bank(uint8_t bank, void *user) {
     sram[0x0000u] = bank;
 }
 
-static int default_flash_erase(volatile uint8_t *base, void *user) {
+static uint16_t flash_waitcnt_enter(void) {
+#ifdef CL_CART_GBA_HOST_SAVE_BUS
+    return 0;
+#else
+    uint16_t old = CL_GBA_REG_WAITCNT;
+    CL_GBA_REG_WAITCNT =
+        (uint16_t)((old & ~CL_GBA_WAITCNT_SRAM_MASK) |
+                   CL_GBA_WAITCNT_SRAM_8);
+    return old;
+#endif
+}
+
+static void flash_waitcnt_restore(uint16_t old) {
+#ifdef CL_CART_GBA_HOST_SAVE_BUS
+    (void)old;
+#else
+    CL_GBA_REG_WAITCNT = old;
+#endif
+}
+
+static int flash_poll_equal(volatile uint8_t *addr, uint8_t value) {
+    uint32_t left = CL_CART_GBA_FLASH_POLL_LIMIT;
+    while (*addr != value && left) {
+        --left;
+    }
+    return *addr == value ? 0 : -8;
+}
+
+static int default_flash_erase(volatile uint8_t *base,
+                               uint32_t offset,
+                               void *user) {
     (void)user;
+    if (offset >= CL_CART_GBA_SRAM_BANK_SIZE) {
+        return -1;
+    }
     base[0x5555u] = 0xaau;
     base[0x2aaau] = 0x55u;
     base[0x5555u] = 0x80u;
     base[0x5555u] = 0xaau;
     base[0x2aaau] = 0x55u;
-    base[0x5555u] = 0x10u;
-    while (base[0x5555u] != 0xffu) {
-    }
-    return 0;
+    base[offset] = 0x30u;
+    return flash_poll_equal(base + offset, 0xffu);
 }
 
 static int default_flash_write_byte(volatile uint8_t *base,
@@ -214,13 +251,17 @@ static int default_flash_write_byte(volatile uint8_t *base,
                                     uint8_t value,
                                     void *user) {
     (void)user;
+    if (offset >= CL_CART_GBA_SRAM_BANK_SIZE) {
+        return -1;
+    }
+    if (value == 0xffu && base[offset] == 0xffu) {
+        return 0;
+    }
     base[0x5555u] = 0xaau;
     base[0x2aaau] = 0x55u;
     base[0x5555u] = 0xa0u;
     base[offset] = value;
-    while (base[offset] != value) {
-    }
-    return 0;
+    return flash_poll_equal(base + offset, value);
 }
 
 static void switch_flash_bank(const cl_cart_gba_ctx_t *ctx, uint8_t bank) {
@@ -396,7 +437,7 @@ static void apply_save_config(cl_cart_gba_ctx_t *ctx,
         ctx->save_size = 0;
         ctx->save_type = CL_CART_SAVE_NONE;
         ctx->save_linear = 0;
-        ctx->flash_erased_for_write = 0;
+        ctx->flash_erased_sector_mask = 0;
         return;
     }
 
@@ -409,7 +450,7 @@ static void apply_save_config(cl_cart_gba_ctx_t *ctx,
     ctx->save_type = save_type;
     ctx->save_linear = save_type_is_linear(save_type) &&
         save_size_is_file_accessible(save_type, save_size);
-    ctx->flash_erased_for_write = 0;
+    ctx->flash_erased_sector_mask = 0;
 }
 
 static uint32_t linear_bank_offset(uint32_t offset) {
@@ -420,43 +461,33 @@ static uint32_t linear_bank_remaining(uint32_t offset) {
     return CL_CART_GBA_SRAM_BANK_SIZE - linear_bank_offset(offset);
 }
 
+static uint32_t linear_flash_sector(uint32_t offset) {
+    return offset / CL_CART_GBA_FLASH_SECTOR_SIZE;
+}
+
+static uint32_t linear_flash_sector_offset(uint32_t offset) {
+    return offset & (CL_CART_GBA_FLASH_SECTOR_SIZE - 1u);
+}
+
+static uint32_t linear_flash_sector_remaining(uint32_t offset) {
+    return CL_CART_GBA_FLASH_SECTOR_SIZE - linear_flash_sector_offset(offset);
+}
+
 static int linear_save_direct_read(const cl_cart_gba_ctx_t *ctx,
                                    uint32_t offset,
                                    uint32_t max_length,
                                    cl_direct_window_t *out_window) {
-    if (!ctx || !ctx->save8 || !out_window ||
-        !ctx->save_linear || ctx->save_type == CL_CART_SAVE_EEPROM ||
-        offset >= ctx->save_size) {
-        return 0;
+    (void)ctx;
+    (void)offset;
+    (void)max_length;
+    if (out_window) {
+        memset(out_window, 0, sizeof(*out_window));
     }
-    uint32_t remaining = ctx->save_size - offset;
-    uint32_t n = remaining < max_length ? remaining : max_length;
-    uint32_t bank_left = linear_bank_remaining(offset);
-    if (n > bank_left) {
-        n = bank_left;
-    }
-    uint8_t bank = (uint8_t)(offset / CL_CART_GBA_SRAM_BANK_SIZE);
-    uint32_t bank_offset = linear_bank_offset(offset);
-    if (ctx->save_type == CL_CART_SAVE_FLASH) {
-        switch_flash_bank(ctx, bank);
-    } else {
-        switch_sram_bank(ctx, bank);
-    }
-    out_window->data = ctx->save8 + bank_offset;
-    out_window->length = n;
-    out_window->access = CL_DIRECT_WINDOW_BYTES;
     return 0;
 }
 
 static int linear_save_release_direct(const cl_cart_gba_ctx_t *ctx) {
-    if (!ctx || !ctx->save_linear || ctx->save_type == CL_CART_SAVE_EEPROM) {
-        return 0;
-    }
-    if (ctx->save_type == CL_CART_SAVE_FLASH) {
-        switch_flash_bank(ctx, 0);
-    } else {
-        switch_sram_bank(ctx, 0);
-    }
+    (void)ctx;
     return 0;
 }
 
@@ -531,36 +562,62 @@ static int linear_flash_write(cl_cart_gba_ctx_t *ctx,
     if (!ctx->write_flash_byte || !ctx->erase_flash) {
         return -5;
     }
-    if (!ctx->flash_erased_for_write) {
-        if (offset != 0) {
-            return -6;
-        }
-        int ret = ctx->erase_flash(ctx->save8, ctx->flash_user);
-        if (ret < 0) {
-            return ret;
-        }
-        ctx->flash_erased_for_write = 1;
+    if (ctx->flash_erased_sector_mask == 0 && offset != 0) {
+        return -6;
     }
 
     uint32_t copied = 0;
     while (copied < length) {
         uint32_t absolute = offset + copied;
-        uint8_t bank = (uint8_t)(absolute / CL_CART_GBA_SRAM_BANK_SIZE);
+        uint32_t sector = linear_flash_sector(absolute);
+        if (sector >= 32u) {
+            switch_flash_bank(ctx, 0);
+            return -9;
+        }
+        uint8_t bank =
+            (uint8_t)(sector / CL_CART_GBA_FLASH_SECTORS_PER_BANK);
+        uint32_t bank_sector =
+            sector % CL_CART_GBA_FLASH_SECTORS_PER_BANK;
+        uint32_t sector_base =
+            bank_sector * CL_CART_GBA_FLASH_SECTOR_SIZE;
         uint32_t bank_offset = linear_bank_offset(absolute);
         uint32_t n = length - copied;
-        uint32_t bank_left = linear_bank_remaining(absolute);
-        if (n > bank_left) {
-            n = bank_left;
+        uint32_t sector_left = linear_flash_sector_remaining(absolute);
+        if (n > sector_left) {
+            n = sector_left;
         }
+
         switch_flash_bank(ctx, bank);
+        uint32_t sector_bit = 1u << sector;
+        if ((ctx->flash_erased_sector_mask & sector_bit) == 0) {
+            uint16_t old_waitcnt = flash_waitcnt_enter();
+            int ret = ctx->erase_flash(ctx->save8, sector_base,
+                                       ctx->flash_user);
+            flash_waitcnt_restore(old_waitcnt);
+            if (ret < 0) {
+                switch_flash_bank(ctx, 0);
+                return ret;
+            }
+            ctx->flash_erased_sector_mask |= sector_bit;
+        }
+
+        uint16_t old_waitcnt = flash_waitcnt_enter();
         for (uint32_t i = 0; i < n; ++i) {
             int ret = ctx->write_flash_byte(ctx->save8,
                                             bank_offset + i,
                                             src[copied + i],
                                             ctx->flash_user);
             if (ret < 0) {
+                flash_waitcnt_restore(old_waitcnt);
                 switch_flash_bank(ctx, 0);
                 return ret;
+            }
+        }
+        flash_waitcnt_restore(old_waitcnt);
+        for (uint32_t i = 0; i < n; ++i) {
+            if (ctx->save8[bank_offset + i] != src[copied + i]) {
+                switch_flash_bank(ctx, 0);
+                return -7;
             }
         }
         copied += n;
@@ -1173,9 +1230,15 @@ static int gba_flush(void *ctx, cl_cart_file_kind_t kind) {
 }
 
 static int gba_set_size(void *ctx, cl_cart_file_kind_t kind, uint64_t size) {
-    (void)ctx;
+    cl_cart_gba_ctx_t *gba = (cl_cart_gba_ctx_t *)ctx;
     if (kind == CL_CART_FILE_ROM) {
         return cl_cart_nor_set_write_size(size);
+    }
+    if (kind == CL_CART_FILE_SAVE && gba) {
+        if (size != 0 && gba->save_size != 0 && size != gba->save_size) {
+            return -1;
+        }
+        gba->flash_erased_sector_mask = 0;
     }
     return 0;
 }

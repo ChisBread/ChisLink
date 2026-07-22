@@ -16,7 +16,9 @@ extern "C" {
 
 typedef void (*cl_cart_gba_sram_bank_fn)(uint8_t bank, void *user);
 typedef void (*cl_cart_gba_flash_bank_fn)(uint8_t bank, void *user);
-typedef int (*cl_cart_gba_flash_erase_fn)(volatile uint8_t *base, void *user);
+typedef int (*cl_cart_gba_flash_erase_fn)(volatile uint8_t *base,
+                                          uint32_t offset,
+                                          void *user);
 typedef int (*cl_cart_gba_flash_write_fn)(volatile uint8_t *base,
                                           uint32_t offset,
                                           uint8_t value,
