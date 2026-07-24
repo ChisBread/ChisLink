@@ -495,6 +495,10 @@ static void linear_save_read(const cl_cart_gba_ctx_t *ctx,
                              uint32_t offset,
                              uint8_t *dst,
                              uint32_t length) {
+    uint16_t old_waitcnt = 0;
+    if (ctx->save_type == CL_CART_SAVE_FLASH) {
+        old_waitcnt = flash_waitcnt_enter();
+    }
     uint32_t copied = 0;
     while (copied < length) {
         uint32_t absolute = offset + copied;
@@ -517,6 +521,7 @@ static void linear_save_read(const cl_cart_gba_ctx_t *ctx,
     }
     if (ctx->save_type == CL_CART_SAVE_FLASH) {
         switch_flash_bank(ctx, 0);
+        flash_waitcnt_restore(old_waitcnt);
     } else {
         switch_sram_bank(ctx, 0);
     }
@@ -566,12 +571,14 @@ static int linear_flash_write(cl_cart_gba_ctx_t *ctx,
         return -6;
     }
 
+    uint16_t old_waitcnt = flash_waitcnt_enter();
     uint32_t copied = 0;
     while (copied < length) {
         uint32_t absolute = offset + copied;
         uint32_t sector = linear_flash_sector(absolute);
         if (sector >= 32u) {
             switch_flash_bank(ctx, 0);
+            flash_waitcnt_restore(old_waitcnt);
             return -9;
         }
         uint8_t bank =
@@ -590,39 +597,38 @@ static int linear_flash_write(cl_cart_gba_ctx_t *ctx,
         switch_flash_bank(ctx, bank);
         uint32_t sector_bit = 1u << sector;
         if ((ctx->flash_erased_sector_mask & sector_bit) == 0) {
-            uint16_t old_waitcnt = flash_waitcnt_enter();
             int ret = ctx->erase_flash(ctx->save8, sector_base,
                                        ctx->flash_user);
-            flash_waitcnt_restore(old_waitcnt);
             if (ret < 0) {
                 switch_flash_bank(ctx, 0);
+                flash_waitcnt_restore(old_waitcnt);
                 return ret;
             }
             ctx->flash_erased_sector_mask |= sector_bit;
         }
 
-        uint16_t old_waitcnt = flash_waitcnt_enter();
         for (uint32_t i = 0; i < n; ++i) {
             int ret = ctx->write_flash_byte(ctx->save8,
                                             bank_offset + i,
                                             src[copied + i],
                                             ctx->flash_user);
             if (ret < 0) {
-                flash_waitcnt_restore(old_waitcnt);
                 switch_flash_bank(ctx, 0);
+                flash_waitcnt_restore(old_waitcnt);
                 return ret;
             }
         }
-        flash_waitcnt_restore(old_waitcnt);
         for (uint32_t i = 0; i < n; ++i) {
             if (ctx->save8[bank_offset + i] != src[copied + i]) {
                 switch_flash_bank(ctx, 0);
+                flash_waitcnt_restore(old_waitcnt);
                 return -7;
             }
         }
         copied += n;
     }
     switch_flash_bank(ctx, 0);
+    flash_waitcnt_restore(old_waitcnt);
     return 0;
 }
 
