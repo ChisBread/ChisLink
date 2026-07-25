@@ -86,13 +86,17 @@ static void flash_write_cmd(uint32_t addr, uint16_t data) {
     flash_write_raw(addr, g_swap_d0d1 ? swap_d0d1(data) : data);
 }
 
-static void flash_reset(void) {
-    if (g_is_intel) {
+static void flash_reset_mode(uint8_t intel) {
+    if (intel) {
         flash_write_raw(0, 0x50u);
         flash_write_raw(0, 0xffu);
     } else {
         flash_write_cmd(0, 0xf0u);
     }
+}
+
+static void flash_reset(void) {
+    flash_reset_mode(g_is_intel);
 }
 
 static uint32_t sector_size_at(const cl_cart_nor_probe_t *probe,
@@ -361,16 +365,14 @@ static int enter_cfi(uint8_t intel) {
     }
     flash_write_raw(0xaau, 0x98u);
     if (check_cfi_signature()) {
+        flash_reset_mode(intel);
         return 1;
     }
-    if (intel) {
-        flash_write_raw(0, 0x50u);
-        flash_write_raw(0, 0xffu);
-    } else {
-        flash_write_raw(0, 0xf0u);
-    }
+    flash_reset_mode(intel);
     flash_write_raw(0x00u, 0x98u);
-    return check_cfi_signature();
+    int ret = check_cfi_signature();
+    flash_reset_mode(intel);
+    return ret;
 }
 
 static uint16_t get_mid_amdnor(void) {
@@ -427,7 +429,7 @@ static uint32_t get_flash_id_auto(void) {
                   flash_read_cmd(2u);
         ret = ((uint32_t)get_mid_intel() << 16u) | get_did_intel();
         if (ret == romdata) {
-            flash_reset();
+            flash_reset_mode(1u);
             return 0;
         }
         g_is_intel = 1;
