@@ -67,14 +67,87 @@ Release 中的 `chislink-fw.zip` 包含：
 
 ```text
 flasher_args.json
+README.txt
 bootloader/bootloader.bin
+ota_data_initial.bin
+recovery.bin
 chislink-mcu.bin
 partition_table/partition-table.bin
 storage.bin
 identify.bin
 ```
 
-可以使用 [esptool-js](https://chisbread.github.io/esptool-js/) 或兼容
+### Web OTA 更新
+
+从 `v1.1.7` 开始，ChisLink 正式支持 OTA 更新，并推荐优先使用 OTA。
+OTA 会保留 recovery 分区和 `identify.bin`。
+
+1. 从最新 GitHub Release 下载 `chislink-fw.zip`。
+2. 启动 GBA Manager，进入无线页面，连接 WiFi，并启动 Web Server。
+3. 在浏览器中打开 ChisLink Web 文件管理器。
+4. 点击 `Firmware Zip`，选择完整的 `chislink-fw.zip` 包。
+5. 设备进入 recovery 后，请保持供电并观察 LED。网页会显示 LED 含义：
+
+```text
+单闪        recovery 空闲或正在检查待更新文件
+双闪        正在写入 MCU 固件
+三闪        正在写入 storage.bin
+四闪        正在校验
+常亮        更新成功，设备即将自动重启
+快速连续闪  更新失败，请查看 /sd/.chislink/update/recovery.log
+```
+
+更新成功后，请重启 GBA 或重新进入 Manager。如果当前固件低于 `v1.1.7`，
+或 Web 页面没有 `Firmware Zip` 按钮，请先使用一次有线刷机安装带 recovery
+支持的固件包。
+
+### 使用 esptool 有线刷机
+
+如未安装 esptool，可先安装：
+
+```sh
+python3 -m pip install --upgrade esptool
+```
+
+解压 `chislink-fw.zip`，让 ESP32-C3 进入下载模式，并设置串口：
+
+```sh
+cd chislink-fw
+export PORT=/dev/cu.usbmodemXXXX
+```
+
+对于还不能使用 OTA 的已有设备，下面的命令会更新固件、recovery 和 storage，
+但保留 `identify.bin`：
+
+```sh
+python3 -m esptool --chip esp32c3 -p "$PORT" -b 460800 \
+  --before default-reset --after hard-reset write-flash \
+  --flash-mode dio --flash-size 4MB --flash-freq 80m \
+  0x0 bootloader/bootloader.bin \
+  0x8000 partition_table/partition-table.bin \
+  0xd000 ota_data_initial.bin \
+  0x10000 recovery.bin \
+  0x90000 chislink-mcu.bin \
+  0x290000 storage.bin
+```
+
+开发或出厂全量刷机时，可以额外写入 `identify.bin`。这会覆盖设备 identify
+LittleFS 镜像：
+
+```sh
+python3 -m esptool --chip esp32c3 -p "$PORT" -b 460800 \
+  --before default-reset --after hard-reset write-flash \
+  --flash-mode dio --flash-size 4MB --flash-freq 80m \
+  0x0 bootloader/bootloader.bin \
+  0x8000 partition_table/partition-table.bin \
+  0xd000 ota_data_initial.bin \
+  0x10000 recovery.bin \
+  0x90000 chislink-mcu.bin \
+  0x290000 storage.bin \
+  0x3fc000 identify.bin
+```
+
+也可以使用 [esptool-js](https://chisbread.github.io/esptool-js/) 或兼容
 `flasher_args.json` 的 ESP 烧录工具刷入。
 
 ## SDK

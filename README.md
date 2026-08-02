@@ -67,15 +67,92 @@ Release assets contain `chislink-fw.zip` with:
 
 ```text
 flasher_args.json
+README.txt
 bootloader/bootloader.bin
+ota_data_initial.bin
+recovery.bin
 chislink-mcu.bin
 partition_table/partition-table.bin
 storage.bin
 identify.bin
 ```
 
-You can flash with [esptool-js](https://chisbread.github.io/esptool-js/) or a
-compatible ESP flashing tool using `flasher_args.json`.
+### Web OTA Update
+
+Web OTA is officially supported starting from `v1.1.7` and is the recommended
+update path. It preserves the recovery partition and `identify.bin`.
+
+1. Download `chislink-fw.zip` from the latest GitHub release.
+2. Start the GBA manager, open the Wireless page, join WiFi, and start the Web
+   Server.
+3. Open the ChisLink web file browser in a browser.
+4. Choose `Firmware Zip` and select the whole `chislink-fw.zip` package.
+5. Keep the device powered while recovery runs. The web page shows the LED
+   meaning after the device enters recovery:
+
+```text
+Single blink   recovery is idle or checking the staged package
+Double blink   writing MCU firmware
+Triple blink   writing storage.bin
+Four blinks    verifying the update
+Solid on       update succeeded; the device reboots shortly
+Fast blinking  update failed; check /sd/.chislink/update/recovery.log
+```
+
+After a successful update, restart the GBA or re-enter the manager. If your
+current firmware is older than `v1.1.7` or does not show the `Firmware Zip`
+button, use wired flashing once to install a firmware package with recovery
+support.
+
+### Wired Flashing With esptool
+
+Install esptool if needed:
+
+```sh
+python3 -m pip install --upgrade esptool
+```
+
+Extract `chislink-fw.zip`, put the ESP32-C3 into download mode, and set your
+serial port:
+
+```sh
+cd chislink-fw
+export PORT=/dev/cu.usbmodemXXXX
+```
+
+For an existing device that cannot use OTA yet, this command updates firmware,
+recovery, and storage while preserving `identify.bin`:
+
+```sh
+python3 -m esptool --chip esp32c3 -p "$PORT" -b 460800 \
+  --before default-reset --after hard-reset write-flash \
+  --flash-mode dio --flash-size 4MB --flash-freq 80m \
+  0x0 bootloader/bootloader.bin \
+  0x8000 partition_table/partition-table.bin \
+  0xd000 ota_data_initial.bin \
+  0x10000 recovery.bin \
+  0x90000 chislink-mcu.bin \
+  0x290000 storage.bin
+```
+
+For development or factory flashing, add `identify.bin`. This overwrites the
+device identify LittleFS image:
+
+```sh
+python3 -m esptool --chip esp32c3 -p "$PORT" -b 460800 \
+  --before default-reset --after hard-reset write-flash \
+  --flash-mode dio --flash-size 4MB --flash-freq 80m \
+  0x0 bootloader/bootloader.bin \
+  0x8000 partition_table/partition-table.bin \
+  0xd000 ota_data_initial.bin \
+  0x10000 recovery.bin \
+  0x90000 chislink-mcu.bin \
+  0x290000 storage.bin \
+  0x3fc000 identify.bin
+```
+
+You can also flash with [esptool-js](https://chisbread.github.io/esptool-js/)
+or another ESP flashing tool using `flasher_args.json`.
 
 ## SDK
 
