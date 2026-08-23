@@ -16,6 +16,25 @@ WiFi/BLE services to GBA software, and expose a C SDK for third-party programs.
 - Public GBA SDK for file, stream, socket, BLE, cart, and runtime services.
 - SDK examples, including storage, streams, sockets, BLE scan, Bomberman link,
   and a BLE HID gamepad sample.
+- Standalone relay server for internet GBA Wireless Adapter linking on
+  ChisLink Pro (ESP32-S3). See [servers/relay-server](servers/relay-server/README.md).
+
+## Relay Server (ChisLink Pro / ESP32-S3)
+
+The relay server lets two **ChisLink Pro (ESP32-S3)** units play GBA Wireless
+Adapter games over the internet. It is a small Go program that forwards
+112-byte `WaNetPacket` records inside password-named rooms.
+
+Build and run:
+
+```bash
+cd servers/relay-server
+go build -o relay-server .
+./relay-server -server-key "your-server-key" -listen ":57318"
+```
+
+The ESP32-C3 version does **not** support the Wireless Adapter mode and cannot
+use this relay server.
 
 ## Manager Features
 

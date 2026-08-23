@@ -16,6 +16,24 @@ WiFi、BLE、文件、流式传输和卡带访问能力。
 - 面向第三方 GBA 程序的公开 C SDK。
 - SDK 示例，覆盖文件、流、socket、BLE、卡带备份、Bomberman 联机和
   BLE HID 手柄。
+- 独立中继服务器，用于 **ChisLink Pro（ESP32-S3 版本）** 的 GBA 无线适配器
+  互联网联机。详见 [servers/relay-server](servers/relay-server/README.md)。
+
+## Relay Server（ChisLink Pro / ESP32-S3）
+
+Relay Server 让两台 **ChisLink Pro（ESP32-S3 版本）** 通过互联网进行 GBA
+无线适配器联机。它是一个小型 Go 程序，在密码命名的房间内转发 112 字节的
+`WaNetPacket`。
+
+构建并运行：
+
+```bash
+cd servers/relay-server
+go build -o relay-server .
+./relay-server -server-key "你的服务器密钥" -listen ":57318"
+```
+
+ESP32-C3 版本 **不支持** 无线适配器模式，无法使用此中继服务器。
 
 ## Manager 功能
 
