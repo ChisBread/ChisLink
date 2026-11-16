@@ -10,7 +10,9 @@ static uint8_t g_handler_depth;
 static uint32_t g_sio_idle_word;
 
 /* --- IRQ rearm (shared across all handlers) --- */
-static uint8_t g_sio_irq_rearm = 1u;
+/* No initialiser: some ROM linker scripts have no initialised .data.
+ * cl_gba_sio_irq_dispatch sets it before reading it. */
+static uint8_t g_sio_irq_rearm;
 static void (*g_sio_direct_handler)(void);
 
 static uint16_t sio_lock_irq(void) {
